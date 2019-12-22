@@ -1,3 +1,10 @@
+# Note : when running this script from command line, it should be run from stable-baselines/stable_baselines with the
+# following command
+# $ python run ppo2/run_atari.py
+
+import sys
+import os
+sys.path.append(os.path.abspath('..'))
 from stable_baselines import PPO2, logger
 from stable_baselines.common.cmd_util import make_atari_env, atari_arg_parser
 from stable_baselines.common.vec_env import VecFrameStack
