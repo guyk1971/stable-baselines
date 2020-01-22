@@ -37,6 +37,7 @@ def main(args):
         buffer_size=50000,
         exploration_fraction=0.1,
         exploration_final_eps=0.02,
+        verbose=1
     )
     model.learn(total_timesteps=args.max_timesteps, callback=callback)
 
