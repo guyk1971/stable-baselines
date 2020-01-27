@@ -45,8 +45,10 @@ def set_gpu_device(gpuid='0'):
         tf.config.experimental.set_visible_devices(cpus[0],'CPU')
         print("working on CPU !")
     return
-
-class Logger:
+#########################
+# Logger                #
+#########################
+class MyLogger:
     def __init__(self,name,
                  filename=None,
                  level=logging.INFO,
@@ -78,3 +80,23 @@ class Logger:
 
     def get_logger(self):
         return self.logger
+
+
+class StreamToLogger(object):
+    """
+    Fake file-like stream object that redirects writes to a logger instance.
+    """
+
+    def __init__(self, logger, log_level=logging.INFO):
+        self.logger = logger
+        self.log_level = log_level
+        self.linebuf = ''
+
+    def write(self, buf):
+        for line in buf.rstrip().splitlines():
+            self.logger.log(self.log_level, line.rstrip())
+
+    def flush(self):
+        pass
+
+

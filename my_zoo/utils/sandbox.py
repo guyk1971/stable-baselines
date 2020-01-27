@@ -1,6 +1,6 @@
 import sys
 import logging
-from my_zoo.utils.common import Logger
+from my_zoo.utils.common import MyLogger
 
 class StreamToLogger(object):
     """
@@ -16,6 +16,9 @@ class StreamToLogger(object):
         for line in buf.rstrip().splitlines():
             self.logger.log(self.log_level, line.rstrip())
 
+    def flush(self):
+        pass
+
 
 # logging.basicConfig(
 #     level=logging.DEBUG,
@@ -26,7 +29,7 @@ class StreamToLogger(object):
 
 
 
-stdout_logger = Logger('STDOUT',"my_out.log").get_logger()
+stdout_logger = MyLogger('STDOUT',"my_out.log").get_logger()
 sl = StreamToLogger(stdout_logger, logging.INFO)
 sys.stdout = sl
 
