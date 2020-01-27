@@ -64,8 +64,15 @@ def run_experiment(experiment_params):
     logger = logging.getLogger(LOGGER_NAME)
     seed=experiment_params.seed
     logger.info(f"\n\n**** starting experiment seed {seed} ****")
-    # todo: create a working directory for the relevant seed
+    # create a working directory for the relevant seed
+
+    output_dir=os.path.join(experiment_params.output_root_dir,seed)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # make the env
+
     #
+
     print("from within the experiment...")
     logger.info(f"\n\n**** completed experiment seed {seed} ****")
     return
@@ -112,9 +119,9 @@ def main():
         # not yet clear how to support hyper parameter search...
         run_experiment(experiment_params)
 
+    # prepare for shutdown logger
     sys.stdout=sys.__stdout__
     sys.stderr=sys.__stderr__
-
     logging.shutdown()
 
     return

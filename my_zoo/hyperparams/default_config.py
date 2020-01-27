@@ -73,9 +73,13 @@ class ExperimentParams:
         ####### Env #######
         self.env_id = 'cartpole'
 
+        ####### Env #######
+        self.policy = None
+
+
         ###### Agent #######
-        self.agent = 'dqn'
-        self.agent_params = DQNAgentParams()
+        self.agent = None               # one of ALGO_IDS above
+        self.agent_params = None        # should be class of agent params e.g. DQNAgentParams()
         self.n_timesteps = 1e5
 
 
