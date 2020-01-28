@@ -71,6 +71,7 @@ class ExperimentParams:
         self.verbose = 1
 
         ####### Env #######
+        self.n_envs = 1
         self.env_id = 'cartpole'
 
         ####### Env #######
@@ -78,6 +79,7 @@ class ExperimentParams:
 
 
         ###### Agent #######
+        self.trained_agent=None
         self.agent = None               # one of ALGO_IDS above
         self.agent_params = None        # should be class of agent params e.g. DQNAgentParams()
         self.n_timesteps = 1e5
@@ -89,10 +91,6 @@ class ExperimentParams:
         self.n_jobs = 1
         self.hpopt_sampler = 'tpe'
         self.hpopt_pruner = 'median'
-
-
-
-
 
     def as_dict(self):
         return vars(self)

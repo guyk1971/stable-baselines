@@ -99,4 +99,7 @@ class StreamToLogger(object):
     def flush(self):
         pass
 
+def title(msg,n,ch='='):
+    return "\n\n"+ch*n+" "+msg+" "+ch*n
+
 

@@ -1,0 +1,4 @@
+train_gymcc:
+ -  the configuration scripts currently include a string for the scheduling. it can also include the function directly
+    all we need to do is to prepare a default file for each algorithm and import the relevant modules that will allow
+    to define things like linear scheduling or the algorithm itself.

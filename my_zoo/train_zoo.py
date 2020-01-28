@@ -103,17 +103,20 @@ if __name__ == '__main__':
         assert valid_extension and os.path.isfile(args.trained_agent), \
             "The trained_agent must be a valid path to a .zip/.pkl file"
 
+    # if we run in multi process, the code runs for each worker and the worker can get its rank as the below
     rank = 0
     if mpi4py is not None and MPI.COMM_WORLD.Get_size() > 1:
         print("Using MPI for multiprocessing with {} workers".format(MPI.COMM_WORLD.Get_size()))
         rank = MPI.COMM_WORLD.Get_rank()
         print("Worker rank: {}".format(rank))
-
+        # make sure that each worker has its own seed
         args.seed += rank
+        # we allow only one worker to "speak"
         if rank != 0:
             args.verbose = 0
             args.tensorboard_log = ''
 
+    # now we start train a model for each of the environment in the list
     for env_id in env_ids:
         tensorboard_log = None if args.tensorboard_log == '' else os.path.join(args.tensorboard_log, env_id)
 
