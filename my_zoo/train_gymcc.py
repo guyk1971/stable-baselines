@@ -69,13 +69,12 @@ def create_logger(exp_params,stdout_to_log=True):
     return logger
 
 
-def create_env(algo,seed,n_envs,env_params):
+def get_create_env(algo,seed,env_params):
     # logger = logging.getLogger(LOGGER_NAME)
     env_id = CC_ENVS.get(env_params.env_id,None)
     assert env_id , "env {0} is not supported".format(env_id)
     is_atari= 'NoFrameskip' in env_id
     # n_envs = experiment_params.get('n_envs', 1)
-    logger.info('using {0} instances of {1} :'.format(n_envs,env_id))
 
     normalize_kwargs = {'norm_obs':env_params.norm_obs,'norm_reward':env_params.norm_reward}
     normalize = normalize_kwargs['norm_obs'] or normalize_kwargs['norm_reward']
@@ -119,9 +118,7 @@ def create_env(algo,seed,n_envs,env_params):
             logger.info("Stacking {} frames".format(n_stack))
         return env
 
-    env = _create_env(n_envs)
-
-    return env
+    return _create_env
 
 def parse_agent_params(hyperparams,n_actions,n_timesteps):
 
@@ -175,7 +172,7 @@ def parse_agent_params(hyperparams,n_actions,n_timesteps):
 
     return
 
-def do_hpopt(algo,experiment_params,output_dir):
+def do_hpopt(algo,create_env,experiment_params,output_dir):
     if experiment_params.verbose > 0:
         logger.info("Optimizing hyperparameters")
 
@@ -258,7 +255,8 @@ def run_experiment(experiment_params):
     n_envs = experiment_params.get('n_envs', 1)
     env_id = experiment_params.env_params.env_id
     logger.info('using {0} instances of {1} :'.format(n_envs,env_id))
-    env = create_env(algo,n_envs,experiment_params.env_params)
+    create_env = get_create_env(algo,seed,experiment_params.env_params)
+    env = create_env(n_envs)
 
     # Stop env processes to free memory - not clear....
     if experiment_params.hp_optimize and n_envs > 1:
@@ -269,7 +267,7 @@ def run_experiment(experiment_params):
     if ALGOS[algo] is None:
         raise ValueError('{} requires MPI to be installed'.format(algo))
     n_actions = env.action_space.shape[0]
-    parse_agent_params(agent_hyperparams,n_actions)
+    parse_agent_params(agent_hyperparams,n_actions,experiment_params.n_timesteps)
 
 
     if experiment_params.trained_agent != "":
@@ -280,7 +278,7 @@ def run_experiment(experiment_params):
     # todo: handle the case of "her" wrapper.
 
     if experiment_params.hp_optimize:
-        # do_hpopt()
+        # do_hpopt(algo,create_env,experiment_params,output_dir)
         logger.warning("hyper parameter optimization is not yet supported")
     else:
         normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
