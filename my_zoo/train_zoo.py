@@ -138,7 +138,6 @@ if __name__ == '__main__':
 
         # Sort hyperparams that will be saved
         saved_hyperparams = OrderedDict([(key, hyperparams[key]) for key in sorted(hyperparams.keys())])
-
         algo_ = args.algo
         # HER is only a wrapper around an algo
         if args.algo == 'her':
@@ -152,35 +151,15 @@ if __name__ == '__main__':
         if args.verbose > 0:
             pprint(saved_hyperparams)
 
+        ############################
+        # Build the Env
         n_envs = hyperparams.get('n_envs', 1)
-
         if args.verbose > 0:
             print("Using {} environments".format(n_envs))
 
-        # Create learning rate schedules for ppo2 and sac
-        if algo_ in ["ppo2", "sac", "td3"]:
-            for key in ['learning_rate', 'cliprange', 'cliprange_vf']:
-                if key not in hyperparams:
-                    continue
-                if isinstance(hyperparams[key], str):
-                    schedule, initial_value = hyperparams[key].split('_')
-                    initial_value = float(initial_value)
-                    hyperparams[key] = linear_schedule(initial_value)
-                elif isinstance(hyperparams[key], (float, int)):
-                    # Negative value: ignore (ex: for clipping)
-                    if hyperparams[key] < 0:
-                        continue
-                    hyperparams[key] = constfn(float(hyperparams[key]))
-                else:
-                    raise ValueError('Invalid value for {}: {}'.format(key, hyperparams[key]))
-
-        # Should we overwrite the number of timesteps?
-        if args.n_timesteps > 0:
-            if args.verbose:
-                print("Overwriting n_timesteps with n={}".format(args.n_timesteps))
-            n_timesteps = args.n_timesteps
-        else:
-            n_timesteps = int(hyperparams['n_timesteps'])
+        # Delete keys so the dict can be pass to the model constructor
+        if 'n_envs' in hyperparams.keys():
+            del hyperparams['n_envs']
 
         normalize = False
         normalize_kwargs = {}
@@ -190,14 +169,6 @@ if __name__ == '__main__':
                 normalize_kwargs = eval(normalize)
                 normalize = True
             del hyperparams['normalize']
-
-        if 'policy_kwargs' in hyperparams.keys():
-            hyperparams['policy_kwargs'] = eval(hyperparams['policy_kwargs'])
-
-        # Delete keys so the dict can be pass to the model constructor
-        if 'n_envs' in hyperparams.keys():
-            del hyperparams['n_envs']
-        del hyperparams['n_timesteps']
 
         # obtain a class object from a wrapper name string in hyperparams
         # and delete the entry
@@ -248,11 +219,42 @@ if __name__ == '__main__':
                 del hyperparams['frame_stack']
             return env
 
-
         env = create_env(n_envs)
         # Stop env processes to free memory
         if args.optimize_hyperparameters and n_envs > 1:
             env.close()
+
+
+        ############################
+        # Build the Agent
+        # Create learning rate schedules for ppo2 and sac
+        if algo_ in ["ppo2", "sac", "td3"]:
+            for key in ['learning_rate', 'cliprange', 'cliprange_vf']:
+                if key not in hyperparams:
+                    continue
+                if isinstance(hyperparams[key], str):
+                    schedule, initial_value = hyperparams[key].split('_')
+                    initial_value = float(initial_value)
+                    hyperparams[key] = linear_schedule(initial_value)
+                elif isinstance(hyperparams[key], (float, int)):
+                    # Negative value: ignore (ex: for clipping)
+                    if hyperparams[key] < 0:
+                        continue
+                    hyperparams[key] = constfn(float(hyperparams[key]))
+                else:
+                    raise ValueError('Invalid value for {}: {}'.format(key, hyperparams[key]))
+
+        # Should we overwrite the number of timesteps?
+        if args.n_timesteps > 0:
+            if args.verbose:
+                print("Overwriting n_timesteps with n={}".format(args.n_timesteps))
+            n_timesteps = args.n_timesteps
+        else:
+            n_timesteps = int(hyperparams['n_timesteps'])
+        del hyperparams['n_timesteps']
+
+        if 'policy_kwargs' in hyperparams.keys():
+            hyperparams['policy_kwargs'] = eval(hyperparams['policy_kwargs'])
 
         # Parse noise string for DDPG and SAC
         if algo_ in ['ddpg', 'sac', 'td3'] and hyperparams.get('noise_type') is not None:
@@ -291,7 +293,6 @@ if __name__ == '__main__':
             print("Loading pretrained agent")
             # Policy should not be changed
             del hyperparams['policy']
-
             model = ALGOS[args.algo].load(args.trained_agent, env=env,
                                           tensorboard_log=tensorboard_log, verbose=args.verbose, **hyperparams)
 
@@ -341,6 +342,8 @@ if __name__ == '__main__':
 
         model.learn(n_timesteps, **kwargs)
 
+
+
         # Save trained model
         log_path = "{}/{}/".format(args.log_folder, args.algo)
         save_path = os.path.join(log_path, "{}_{}".format(env_id, get_latest_run_id(log_path, env_id) + 1))
@@ -350,7 +353,6 @@ if __name__ == '__main__':
         # Only save worker of rank 0 when using mpi
         if rank == 0:
             print("Saving to {}".format(save_path))
-
             model.save("{}/{}".format(save_path, env_id))
             # Save hyperparams
             with open(os.path.join(params_path, 'config.yml'), 'w') as f:
