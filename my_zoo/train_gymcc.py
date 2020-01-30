@@ -130,7 +130,7 @@ def parse_agent_params(hyperparams,n_actions,n_timesteps):
     # Parse the schedule parameters for the relevant algorithms
     if algo in ["ppo2", "sac", "td3"]:
         for key in ['learning_rate', 'cliprange', 'cliprange_vf']:
-            if key not in hyperparams:
+            if key not in hyperparams or hyperparams[key] is None:
                 continue
             if isinstance(hyperparams[key], str):
                 schedule, initial_value = hyperparams[key].split('_')
