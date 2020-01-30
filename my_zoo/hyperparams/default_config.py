@@ -24,7 +24,7 @@ CC_ENVS = {'cartpole':'CartPole-v0',
 class EnvParams:
     def __init__(self,env_id='cartpole'):
         self.env_id=env_id
-        self.normalize = False      # can also be "{'norm_obs': True, 'norm_reward': False}"
+        # self.normalize = False      # can also be "{'norm_obs': True, 'norm_reward': False}"
         # consider dropping normalize and use the below directly
         self.norm_obs = False
         self.norm_reward = False
