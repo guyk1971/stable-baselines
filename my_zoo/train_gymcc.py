@@ -9,6 +9,7 @@ import sys
 import time
 import argparse
 import importlib
+from functools import partial
 from collections import OrderedDict
 import gym
 import numpy as np
@@ -17,6 +18,7 @@ from stable_baselines.common import set_global_seeds
 from stable_baselines.common.cmd_util import make_atari_env
 from stable_baselines.common.vec_env import VecFrameStack, SubprocVecEnv, VecNormalize, DummyVecEnv
 from stable_baselines.common.noise import AdaptiveParamNoiseSpec, NormalActionNoise, OrnsteinUhlenbeckActionNoise
+from stable_baselines.ppo2.ppo2 import constfn  # todo: consider adding it directly to the config class of ppo
 
 try:
     import mpi4py
@@ -24,13 +26,13 @@ try:
 except ImportError:
     mpi4py = None
 
-from my_zoo.utils.common import *
-from my_zoo.utils import make_env, ALGOS, linear_schedule, get_latest_run_id, get_wrapper_class, find_saved_model
+from zoo.utils import make_env, ALGOS, linear_schedule, get_latest_run_id, get_wrapper_class, find_saved_model
 from zoo.utils.hyperparams_opt import hyperparam_optimization
 from zoo.utils.noise import LinearNormalActionNoise
 
+from my_zoo.utils.common import *
 from my_zoo.hyperparams.default_config import CC_ENVS
-from stable_baselines.ppo2.ppo2 import constfn  # todo: consider adding it directly to the config class of ppo
+
 
 
 CONFIGS_DIR = os.path.join(os.path.expanduser('~'),'share','Data','MLA','stbl','configs')
@@ -46,10 +48,10 @@ def parse_cmd_line():
     parser.add_argument('-d','--gpuid',type=str,default='',help='gpu id or "cpu"')
     parser.add_argument('--num_experiments', help='number of experiments', default=1,type=int)
     parser.add_argument('--seed', help='Random generator seed', type=int, default=1)
-    parser.add_argument('-i', '--trained-agent', help='Path to a pretrained agent to continue training',
+    parser.add_argument('-i', '--trained_agent', help='Path to a pretrained agent to continue training',
                         default='', type=str)
-    parser.add_argument('-n', '--n-timesteps', help='Overwrite the number of timesteps', default=-1,type=int)
-    parser.add_argument('--log-interval', help='Override log interval (default: -1, no change)', default=-1,type=int)
+    parser.add_argument('-n', '--n_timesteps', help='Overwrite the number of timesteps', default=-1,type=int)
+    parser.add_argument('--log_interval', help='Override log interval (default: -1, no change)', default=-1,type=int)
     args = parser.parse_args()
     return args
 
@@ -81,7 +83,7 @@ def get_create_env(algo,seed,env_params):
 
     # obtain a class object from a wrapper name string in hyperparams
     # and delete the entry
-    env_wrapper = get_wrapper_class(env_params.as_dict())
+    env_wrapper = get_wrapper_class(env_params.as_dict()) if env_params.env_wrapper else None
 
     def _create_env(n_envs):
         """
@@ -117,8 +119,8 @@ def get_create_env(algo,seed,env_params):
             env = VecFrameStack(env, n_stack)
             logger.info("Stacking {} frames".format(n_stack))
         return env
-
     return _create_env
+    # return partial(_create_env,env_wrapper)
 
 def parse_agent_params(hyperparams,n_actions,n_timesteps):
 
@@ -224,10 +226,10 @@ def run_experiment(experiment_params):
         if rank != 0:
             experiment_params.verbose = 0
 
-    logger.info(title("starting experiment seed {seed}",30))
+    logger.info(title("starting experiment seed {}".format(seed),30))
 
     # create a working directory for the relevant seed
-    output_dir=os.path.join(experiment_params.output_root_dir,seed)
+    output_dir=os.path.join(experiment_params.output_root_dir,str(seed))
     os.makedirs(output_dir, exist_ok=True)
 
     # logger.info(experiment_params.as_dict())
@@ -236,11 +238,16 @@ def run_experiment(experiment_params):
     set_global_seeds(experiment_params.seed)
 
     agent_hyperparams = experiment_params.agent_params.as_dict()
+    env_params_dict = experiment_params.env_params.as_dict()
     exparams_dict = experiment_params.as_dict()
 
-    saved_agent_hyperparams = OrderedDict([(key, agent_hyperparams[key]) for key in sorted(agent_hyperparams.keys())])
-    saved_hyperparams = OrderedDict([(key, exparams_dict[key]) for key in exparams_dict.keys()])
-    saved_hyperparams['agent_hyperparams']=saved_agent_hyperparams
+    saved_env_params = OrderedDict([(key, str(env_params_dict[key])) for key in sorted(env_params_dict.keys())])
+    saved_agent_hyperparams = OrderedDict([(key, str(agent_hyperparams[key])) for key in sorted(agent_hyperparams.keys())])
+    saved_hyperparams = OrderedDict([(key, str(exparams_dict[key])) for key in exparams_dict.keys()])
+    saved_hyperparams['agent_params']=saved_agent_hyperparams
+    saved_hyperparams['env_params'] = saved_env_params
+
+
 
     # parse algorithm
     algo = agent_hyperparams['algorithm']
@@ -252,7 +259,7 @@ def run_experiment(experiment_params):
 
     ###################
     # make the env
-    n_envs = experiment_params.get('n_envs', 1)
+    n_envs = experiment_params.n_envs
     env_id = experiment_params.env_params.env_id
     logger.info('using {0} instances of {1} :'.format(n_envs,env_id))
     create_env = get_create_env(algo,seed,experiment_params.env_params)
@@ -266,11 +273,11 @@ def run_experiment(experiment_params):
     # create the agent
     if ALGOS[algo] is None:
         raise ValueError('{} requires MPI to be installed'.format(algo))
-    n_actions = env.action_space.shape[0]
+    # n_actions = env.action_space.shape[0]
+    n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
     parse_agent_params(agent_hyperparams,n_actions,experiment_params.n_timesteps)
 
-
-    if experiment_params.trained_agent != "":
+    if experiment_params.trained_agent:
         valid_extension = experiment_params.trained_agent.endswith('.pkl') or experiment_params.trained_agent.endswith('.zip')
         assert valid_extension and os.path.isfile(experiment_params.trained_agent), \
             "The trained_agent must be a valid path to a .zip/.pkl file"
@@ -283,7 +290,7 @@ def run_experiment(experiment_params):
     else:
         normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
         trained_agent = experiment_params.trained_agent
-        if trained_agent != "":
+        if trained_agent:
             valid_extension = trained_agent.endswith('.pkl') or trained_agent.endswith('.zip')
             assert valid_extension and os.path.isfile(trained_agent), \
                 "The trained_agent must be a valid path to a .zip/.pkl file"
@@ -304,7 +311,7 @@ def run_experiment(experiment_params):
         if experiment_params.log_interval > -1:
             kwargs = {'log_interval': experiment_params.log_interval}
 
-        model.learn(experiment_params.n_timesteps, **kwargs)
+        model.learn(int(experiment_params.n_timesteps), **kwargs)
 
         # Save trained model
         save_path = output_dir
@@ -316,7 +323,9 @@ def run_experiment(experiment_params):
             logger.info("Saving to {}".format(save_path))
             model.save(params_path)
             # Save hyperparams
-            with open(os.path.join(params_path, 'config.yml'), 'w') as f:
+            # note that in order to save as yaml I need to avoid using classes in the definition.
+            # e.g. CustomDQNPolicy will not work. I need to put a string and parse it later
+            with open(os.path.join(output_dir, 'config.yml'), 'w') as f:
                 yaml.dump(saved_hyperparams, f)
 
             if normalize:
@@ -325,9 +334,6 @@ def run_experiment(experiment_params):
                     env = env.venv
                 # Important: save the running average, for testing the agent we need that normalization
                 env.save_running_average(params_path)
-
-
-    # print("from within the experiment...")
     logger.info(title("completed experiment seed {seed}",30))
     return
 
@@ -357,14 +363,23 @@ def main():
     os.makedirs(experiment_params.output_root_dir, exist_ok=True)
 
     global logger
-    logger = create_logger(experiment_params)
-    logger.info(title('Starting {0} experiments'.format(args.num_experiments),40))
-
-    # todo: check if some cmd line arguments should override the experiment params
+    logger = create_logger(experiment_params,stdout_to_log=False)
 
 
+    # check if some cmd line arguments should override the experiment params
+    if args.n_timesteps > -1:
+        logger.info("overriding n_timesteps with {}".format(args.n_timesteps))
+        experiment_params.n_timesteps=args.n_timesteps
+    if args.log_interval > -1:
+        logger.info("overriding log_interval with {}".format(args.log_interval))
+        experiment_params.log_interval=args.log_interval
+    if args.trained_agent != '':
+        logger.info("overriding trained_agent with {}".format(args.trained_agent))
+        experiment_params.trained_agent=args.trained_agent
+
+    logger.info(title('Starting {0} experiments'.format(args.num_experiments), 40))
     for e in range(args.num_experiments):
-        seed = args.seed+10*e
+        seed = args.seed+100*e
         experiment_params.seed = seed
         # run experiment will generate its own sub folder for each seed
         # not yet clear how to support hyper parameter search...
@@ -378,7 +393,7 @@ def main():
     return
 
 if __name__ == '__main__':
-    # suppress_tensorflow_warnings()
+    suppress_tensorflow_warnings()
     main()
 
 

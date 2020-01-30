@@ -94,7 +94,7 @@ class DQNAgentParams(AgentParams):
         self.prioritized_replay_beta_iters = None
         self.prioritized_replay_eps = 1e-6
         self.n_cpu_tf_sess = None
-        self.policy_kwargs = None,
+        self.policy_kwargs = None
         return
 
 
