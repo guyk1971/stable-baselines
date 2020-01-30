@@ -17,7 +17,7 @@ ALGO_IDS = ['a2c','acer','dqn','ddpg','sac','td3','ppo2']
 CC_ENVS = {'cartpole':'CartPole-v0',
            'cartpole1':'CartPole-v1',
            'mntcar':'MountainCar-v0',
-           'acrobot':'Acrobot-v0',
+           'acrobot':'Acrobot-v1',
            'lunland':'LunarLander-v2'
            }
 

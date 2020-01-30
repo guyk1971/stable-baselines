@@ -40,7 +40,6 @@ policy = CustomDQNPolicy
 ##########################################################
 agent_params = DQNAgentParams()
 # here we can change the various parameters - for example, we can change the batch size
-agent_params.batch_size = 64
 agent_params.policy = policy
 agent_params.learning_rate = 1e-3
 agent_params.exploration_final_eps= 0.1
