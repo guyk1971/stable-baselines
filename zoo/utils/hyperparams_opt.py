@@ -200,6 +200,27 @@ def hyperparam_optimization(algo, model_fn, env_fn, n_trials=10, n_timesteps=500
     return study.trials_dataframe()
 
 
+def sample_dqn_params(trial):
+    """
+    Sampler for DQN hyperparams.
+
+    :param trial: (optuna.trial)
+    :return: (dict)
+    """
+    batch_size = trial.suggest_categorical('batch_size', [32, 64, 128, 256])
+    learning_starts = trial.suggest_categorical('learning_starts',[1000,2000,5000])
+    gamma = trial.suggest_categorical('gamma', [0.9, 0.95, 0.98, 0.99, 0.995, 0.999, 0.9999])
+    learning_rate = trial.suggest_loguniform('lr', 1e-5, 1)
+
+
+    return {
+        'batch_size': batch_size,
+        'learning_starts':learning_starts,
+        'gamma': gamma,
+        'learning_rate': learning_rate,
+    }
+
+
 def sample_ppo2_params(trial):
     """
     Sampler for PPO2 hyperparams.
@@ -452,6 +473,7 @@ def sample_her_params(trial):
 
 
 HYPERPARAMS_SAMPLER = {
+    'dqn': sample_dqn_params,
     'ppo2': sample_ppo2_params,
     'sac': sample_sac_params,
     'a2c': sample_a2c_params,
