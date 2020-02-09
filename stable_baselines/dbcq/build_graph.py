@@ -1,4 +1,4 @@
-"""Deep Q learning graph
+"""Discrete Batch Constrained deep Q learning graph
 
 The functions in this file can are used to create the following functions:
 

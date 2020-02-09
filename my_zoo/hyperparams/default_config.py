@@ -337,6 +337,50 @@ class TD3AgentParams(AgentParams):
         return
 
 
+class DBCQAgentParams(AgentParams):
+    """
+    Parameters for DQN agent
+    The agent gets the following values in its construction:
+    policy,env
+    gamma = 0.99, learning_rate = 5e-4, buffer_size = 50000, exploration_fraction = 0.1,
+    exploration_final_eps = 0.02, exploration_initial_eps = 1.0, train_freq = 1, batch_size = 32, double_q = True,
+    learning_starts = 1000, target_network_update_freq = 500, prioritized_replay = False,
+    prioritized_replay_alpha = 0.6, prioritized_replay_beta0 = 0.4, prioritized_replay_beta_iters = None,
+    prioritized_replay_eps = 1e-6, param_noise = False,
+
+    n_cpu_tf_sess = None, verbose = 0, tensorboard_log = None, _init_setup_model = True, policy_kwargs = None,
+    full_tensorboard_log = False, seed = None
+    """
+    def __init__(self):
+        super(DBCQAgentParams, self).__init__()
+        # Default parameters for DQN Agent
+        self.algorithm = 'dbcq'
+
+        self.policy = 'MlpPolicy'    # or 'CnnPolicy' or 'CustomDQNPolicy'
+        self.buffer_size = 50000
+        self.learning_rate = 1e-4
+        self.learning_starts = 1000
+        self.target_network_update_freq = 500
+        self.train_freq = 1
+        self.exploration_initial_eps = 1.0
+        self.exploration_final_eps = 0.02
+        self.exploration_fraction = 0.1
+        self.prioritized_replay_alpha = 0.6
+        self.prioritized_replay = False
+        self.param_noise = False
+
+        # other default params
+        self.gamma = 0.99
+        self.batch_size = 32
+        self.double_q = True
+        self.prioritized_replay_beta0 = 0.4
+        self.prioritized_replay_beta_iters = None
+        self.prioritized_replay_eps = 1e-6
+        self.n_cpu_tf_sess = None
+        self.policy_kwargs = None
+        return
+
+
 #################################
 # Experiment Params
 class ExperimentParams:
@@ -354,15 +398,9 @@ class ExperimentParams:
         self.log_date_format = '%y-%m-%d %H:%M:%S'
         self.verbose = 1
 
-
-
         ####### Env #######
         self.n_envs = 1
         self.env_params = None
-
-        ####### Env #######
-        self.policy = None
-
 
         ###### Agent #######
         self.trained_agent=None
@@ -370,6 +408,20 @@ class ExperimentParams:
         # training params
         self.n_timesteps = 1e5
         self.log_interval = -1  # using algorithm default
+
+        ###### BatchRL #######
+        self.batch_experience_agent_params = None       # determines how the experience buffer is created
+                                                        # None = no creation of buffer --> load from file
+        self.batch_experience_buffer = None     # path to experience buffer we'll learn from
+                                                # name template: experience_<env-id>_<agent-id>.npy
+        self.batch_n_epochs = 200               # number of epochs to train
+        self.online_evaluation = True           # whether to use evaluation environment
+        self.offline_evaluation_split = 0.0     # if >0 perform offline evaluation on this fraction of experience
+                                                # e.g. if 0.2, train on 80%, evaluate on 20%
+
+
+
+
 
         ###### Hyper Parameters Optimization ######
         self.hp_optimize = False

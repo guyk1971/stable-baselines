@@ -94,6 +94,11 @@ class ReplayBuffer(object):
         idxes = [random.randint(0, len(self._storage) - 1) for _ in range(batch_size)]
         return self._encode_sample(idxes)
 
+    def save(self,filename):
+        np.save(filename,self._storage)
+    def load(self,filename):
+        self._storage = np.load(filename,allow_pickle=True)
+
 
 class PrioritizedReplayBuffer(ReplayBuffer):
     def __init__(self, size, alpha):

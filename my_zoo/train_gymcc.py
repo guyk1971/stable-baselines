@@ -18,7 +18,7 @@ from stable_baselines.common import set_global_seeds
 from stable_baselines.common.cmd_util import make_atari_env
 from stable_baselines.common.vec_env import VecFrameStack, SubprocVecEnv, VecNormalize, DummyVecEnv
 from stable_baselines.common.noise import AdaptiveParamNoiseSpec, NormalActionNoise, OrnsteinUhlenbeckActionNoise
-from stable_baselines.ppo2.ppo2 import constfn  # todo: consider adding it directly to the config class of ppo
+from stable_baselines.ppo2.ppo2 import constfn
 
 try:
     import mpi4py
@@ -283,7 +283,7 @@ def run_experiment(experiment_params):
             "The trained_agent must be a valid path to a .zip/.pkl file"
 
     # todo: handle the case of "her" wrapper.
-
+    # todo : add support in hyper parameter search using optuna. put parameters in configuration files
     if experiment_params.hp_optimize:
         # do_hpopt(algo,create_env,experiment_params,output_dir)
         logger.warning("hyper parameter optimization is not yet supported")

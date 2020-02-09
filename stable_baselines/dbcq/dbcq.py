@@ -8,19 +8,22 @@ from stable_baselines import logger
 from stable_baselines.common import tf_util, OffPolicyRLModel, SetVerbosity, TensorboardWriter
 from stable_baselines.common.vec_env import VecEnv
 from stable_baselines.common.schedules import LinearSchedule
-from stable_baselines.deepq.build_graph import build_train
-from stable_baselines.deepq.replay_buffer import ReplayBuffer, PrioritizedReplayBuffer
-from stable_baselines.deepq.policies import DQNPolicy
+from stable_baselines.dbcq.build_graph import build_train
+from stable_baselines.dbcq.replay_buffer import ReplayBuffer, PrioritizedReplayBuffer
+from stable_baselines.dbcq.policies import DQNPolicy
 from stable_baselines.a2c.utils import total_episode_reward_logger
 
 
-class DQN(OffPolicyRLModel):
+class DBCQ(OffPolicyRLModel):
     """
-    The DQN model class.
+    The DBCQ model class.
     DQN paper: https://arxiv.org/abs/1312.5602
     Dueling DQN: https://arxiv.org/abs/1511.06581
     Double-Q Learning: https://arxiv.org/abs/1509.06461
     Prioritized Experience Replay: https://arxiv.org/abs/1511.05952
+    Batch Constrained Q learning: https://arxiv.org/abs/1812.02900
+    Discrete Batch Constrained Q learning: https://arxiv.org/abs/1910.01708
+
 
     :param policy: (DQNPolicy or str) The policy model to use (MlpPolicy, CnnPolicy, LnMlpPolicy, ...)
     :param env: (Gym environment or str) The environment to learn from (if registered in Gym, can be str)
@@ -64,7 +67,7 @@ class DQN(OffPolicyRLModel):
                  _init_setup_model=True, policy_kwargs=None, full_tensorboard_log=False, seed=None):
 
         # TODO: replay_buffer refactoring
-        super(DQN, self).__init__(policy=policy, env=env, replay_buffer=None, verbose=verbose, policy_base=DQNPolicy,
+        super(DBCQ, self).__init__(policy=policy, env=env, replay_buffer=None, verbose=verbose, policy_base=DQNPolicy,
                                   requires_vec_env=False, policy_kwargs=policy_kwargs, seed=seed, n_cpu_tf_sess=n_cpu_tf_sess)
 
         self.param_noise = param_noise
@@ -111,7 +114,7 @@ class DQN(OffPolicyRLModel):
 
         with SetVerbosity(self.verbose):
             assert not isinstance(self.action_space, gym.spaces.Box), \
-                "Error: DQN cannot output a gym.spaces.Box action space."
+                "Error: DBCQ cannot output a gym.spaces.Box action space."
 
             # If the policy is wrap in functool.partial (e.g. to disable dueling)
             # unwrap it to check the class type
@@ -119,7 +122,7 @@ class DQN(OffPolicyRLModel):
                 test_policy = self.policy.func
             else:
                 test_policy = self.policy
-            assert issubclass(test_policy, DQNPolicy), "Error: the input policy for the DQN model must be " \
+            assert issubclass(test_policy, DQNPolicy), "Error: the input policy for the DBCQ model must be " \
                                                        "an instance of DQNPolicy."
 
             self.graph = tf.Graph()
@@ -142,7 +145,7 @@ class DQN(OffPolicyRLModel):
                     double_q=self.double_q
                 )
                 self.proba_step = self.step_model.proba_step
-                self.params = tf_util.get_trainable_vars("deepq")
+                self.params = tf_util.get_trainable_vars("dbcq")
 
                 # Initialize the parameters and copy them to the target network.
                 tf_util.initialize(self.sess)
@@ -150,7 +153,7 @@ class DQN(OffPolicyRLModel):
 
                 self.summary = tf.summary.merge_all()
 
-    def learn(self, total_timesteps, callback=None, log_interval=100, tb_log_name="DQN",
+    def learn(self, total_timesteps, callback=None, log_interval=100, tb_log_name="DBCQ",
               reset_num_timesteps=True, replay_wrapper=None):
 
         new_tb_log = self._init_num_timesteps(reset_num_timesteps)
