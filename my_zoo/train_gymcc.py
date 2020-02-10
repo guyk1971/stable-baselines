@@ -214,6 +214,8 @@ def do_hpopt(algo,create_env,experiment_params,output_dir):
 def run_experiment(experiment_params):
     # logger = logging.getLogger(LOGGER_NAME)
     seed=experiment_params.seed
+    # set global seeds
+    set_global_seeds(experiment_params.seed)
 
     rank = 0
     if mpi4py is not None and MPI.COMM_WORLD.Get_size() > 1:
@@ -234,25 +236,23 @@ def run_experiment(experiment_params):
 
     # logger.info(experiment_params.as_dict())
 
-    # set global seeds
-    set_global_seeds(experiment_params.seed)
+    # set the seed for the current worker's agent
+    experiment_params.agent_params.seed = seed
 
+    # take a snapshot of the hyper parameters to save
     agent_hyperparams = experiment_params.agent_params.as_dict()
     env_params_dict = experiment_params.env_params.as_dict()
     exparams_dict = experiment_params.as_dict()
-
     saved_env_params = OrderedDict([(key, str(env_params_dict[key])) for key in sorted(env_params_dict.keys())])
     saved_agent_hyperparams = OrderedDict([(key, str(agent_hyperparams[key])) for key in sorted(agent_hyperparams.keys())])
     saved_hyperparams = OrderedDict([(key, str(exparams_dict[key])) for key in exparams_dict.keys()])
     saved_hyperparams['agent_params']=saved_agent_hyperparams
     saved_hyperparams['env_params'] = saved_env_params
 
-
-
     # parse algorithm
     algo = agent_hyperparams['algorithm']
 
-    experiment_params.agent_params.seed = seed
+
     if experiment_params.verbose>0:
         experiment_params.agent_params.verbose = experiment_params.verbose
         experiment_params.agent_params.tensorboard_log = output_dir

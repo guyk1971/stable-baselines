@@ -15,11 +15,11 @@ import gym
 import numpy as np
 import yaml
 from stable_baselines.common import set_global_seeds
-from stable_baselines.common.cmd_util import make_atari_env
 from stable_baselines.common.vec_env import VecFrameStack, SubprocVecEnv, VecNormalize, DummyVecEnv
 from stable_baselines.common.noise import AdaptiveParamNoiseSpec, NormalActionNoise, OrnsteinUhlenbeckActionNoise
 from stable_baselines.ppo2.ppo2 import constfn  # todo: consider adding it directly to the config class of ppo
 from stable_baselines.dbcq.replay_buffer import ReplayBuffer
+import copy
 
 try:
     import mpi4py
@@ -32,11 +32,10 @@ from zoo.utils.hyperparams_opt import hyperparam_optimization
 from zoo.utils.noise import LinearNormalActionNoise
 
 from my_zoo.utils.common import *
+from my_zoo.utils.train import create_logger,get_create_env,parse_agent_params
 from my_zoo.hyperparams.default_config import CC_ENVS
 
 
-
-CONFIGS_DIR = os.path.join(os.path.expanduser('~'),'share','Data','MLA','stbl','configs')
 LOGGER_NAME=os.path.splitext(os.path.basename(__file__))[0]
 
 
@@ -55,48 +54,88 @@ def parse_cmd_line():
     return args
 
 
-def create_logger(exp_params,stdout_to_log=True):
-
-    log_file_name=os.path.join(exp_params.output_root_dir,exp_params.name+'.log')
-    log_level=exp_params.log_level
-    log_format=exp_params.log_format
-    logger = MyLogger(LOGGER_NAME,filename=log_file_name,
-                      level=log_level,format=log_format).get_logger()
-
-    if stdout_to_log:
-        sys.stdout = StreamToLogger(logger, logging.INFO)
-        sys.stderr = StreamToLogger(logger, logging.ERROR)
-
-    return logger
-
 def create_experience_buffer(experiment_params,output_dir):
     experience_buffer = None
     # todo: copy the main flow from train_gymcc
+    exp_agent_params = experiment_params.batch_experience_agent_params.as_dict()
+    if experiment_params.verbose>0:
+        experiment_params.batch_experience_agent_params.verbose = experiment_params.verbose
+        experiment_params.batch_experience_agent_params.tensorboard_log = output_dir
+
+    algo = exp_agent_params['algorithm']
+    seed = experiment_params.batch_experience_agent_params.seed
+
+    ###################
+    # make the env
+    n_envs = experiment_params.n_envs
+    env_id = experiment_params.env_params.env_id
+    logger.info('using {0} instances of {1} :'.format(n_envs,env_id))
+    create_env = get_create_env(algo,seed,experiment_params.env_params,logger)
+    env = create_env(n_envs)
+
+    #####################
+    # create the agent
+    if ALGOS[algo] is None:
+        raise ValueError('{} requires MPI to be installed'.format(algo))
+
+    n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
+    parse_agent_params(exp_agent_params,n_actions,experiment_params.n_timesteps,logger)
+
+    normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
+
+    trained_agent = experiment_params.batch_experience_trained_agent
+    if trained_agent:
+        valid_extension = trained_agent.endswith('.pkl') or trained_agent.endswith('.zip')
+        assert valid_extension and os.path.isfile(trained_agent), \
+            "The trained_agent must be a valid path to a .zip/.pkl file"
+        logger.info("loading pretrained agent to continue training")
+        # if policy is defined, delete as it will be loaded with the trained agent
+        del exp_agent_params['policy']
+        model = ALGOS[algo].load(trained_agent, env=env,**exp_agent_params)
+        exp_folder = trained_agent[:-4]
+
+        if normalize:
+            logger.info("Loading saved running average")
+            env.load_running_average(exp_folder)
+
+    else:       # create a model from scratch
+        model = ALGOS[algo](env=env, **exp_agent_params)
+
+    kwargs = {}
+    if experiment_params.log_interval > -1:
+        kwargs = {'log_interval': experiment_params.log_interval}
+
+    model.learn(int(experiment_params.n_timesteps), **kwargs)
+    experience_buffer = copy.deepcopy(model.replay_buffer)
 
     return experience_buffer
 
 def load_or_create_experience_buffer(experiment_params,output_dir):
     # if we got an existing experience buffer, load from file and return it
-    if experiment_params.batch_exprience_buffer and os.path.exists(experiment_params.batch_exprience_buffer):
-        logger.info('loading experience buffer from '+experiment_params.batch_exprience_buffer)
-        experience_buffer = ReplayBuffer()
-        experience_buffer.load(experiment_params.batch_exprience_buffer)
+    if experiment_params.batch_experience_buffer and os.path.exists(experiment_params.batch_experience_buffer):
+        logger.info('loading experience buffer from '+experiment_params.batch_experience_buffer)
+        experience_buffer = ReplayBuffer(experiment_params.batch_experience_agent_params.buffer_size)
+        experience_buffer.load(experiment_params.batch_experience_buffer)
         return experience_buffer
     # if we got to this line, we need to generate an experience buffer
-    logger.info('Generating experience buffer with ' + experiment_params.batch_exprience_agent.algorithm)
+    logger.info('Generating experience buffer with ' + experiment_params.batch_experience_agent_params.algorithm)
+    exp_agent_algo=experiment_params.batch_experience_agent_params.algorithm
     experience_buffer = create_experience_buffer(experiment_params,output_dir)
     # save the experience buffer
-
-    exp_buf_filename = 'er_'+experiment_params.env_params.env_id+'_'+experiment_params.batch_experience_agent.algorithm
+    exp_buf_filename = 'er_'+experiment_params.env_params.env_id+'_'+exp_agent_algo
     exp_buf_filename = os.path.join(output_dir,exp_buf_filename)
     experience_buffer.save(exp_buf_filename)
     logger.info('Saving experience buffer to ' + exp_buf_filename)
     return experience_buffer
 
-
+##############################################################################
+# run experiment
+##############################################################################
 def run_experiment(experiment_params):
     # logger = logging.getLogger(LOGGER_NAME)
     seed=experiment_params.seed
+    # set global seeds : in numpy, random, tf and gym
+    set_global_seeds(experiment_params.seed)
 
     rank = 0
     if mpi4py is not None and MPI.COMM_WORLD.Get_size() > 1:
@@ -116,15 +155,13 @@ def run_experiment(experiment_params):
     os.makedirs(output_dir, exist_ok=True)
 
     # logger.info(experiment_params.as_dict())
+    # set the seed for the current worker
 
-    # set global seeds
-    set_global_seeds(experiment_params.seed)
-
-    exp_agent_hparams = experiment_params.batch_experience_agent_params.as_dict()  \
-        if experiment_params.batch_experience_agent_params else None
+    experiment_params.agent_params.seed = seed
 
     saved_exp_agent_hparams = None
     if experiment_params.batch_experience_agent_params:
+        experiment_params.batch_experience_agent_params.seed = seed
         exp_agent_hparams = experiment_params.batch_experience_agent_params.as_dict()
         saved_exp_agent_hparams = OrderedDict(
             [(key, str(exp_agent_hparams[key])) for key in sorted(exp_agent_hparams.keys())])
@@ -145,6 +182,8 @@ def run_experiment(experiment_params):
     er_buf = load_or_create_experience_buffer(experiment_params,output_dir)
 
     # start batch rl training
+    logger.info("Experience buffer is ready with {0} samples".format(er_buf.buffer_size))
+    logger.info(title('start batch training',30))
 
     return
 
@@ -173,7 +212,7 @@ def main():
     os.makedirs(experiment_params.output_root_dir, exist_ok=True)
 
     global logger
-    logger = create_logger(experiment_params,stdout_to_log=False)
+    logger = create_logger(LOGGER_NAME,experiment_params,stdout_to_log=False)
 
 
     # check if some cmd line arguments should override the experiment params
@@ -191,17 +230,15 @@ def main():
         # run experiment will generate its own sub folder for each seed
         run_experiment(experiment_params)
 
-
     # prepare for shutdown logger
     sys.stdout=sys.__stdout__
     sys.stderr=sys.__stderr__
     logging.shutdown()
-
     return
 
 
 
 
 if __name__ == '__main__':
-    suppress_tensorflow_warnings()
+    # suppress_tensorflow_warnings()
     main()

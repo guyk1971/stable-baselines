@@ -98,6 +98,8 @@ class ReplayBuffer(object):
         np.save(filename,self._storage)
     def load(self,filename):
         self._storage = np.load(filename,allow_pickle=True)
+        self._maxsize = max(self._maxsize,len(self._storage))
+
 
 
 class PrioritizedReplayBuffer(ReplayBuffer):

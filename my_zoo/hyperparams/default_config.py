@@ -410,6 +410,13 @@ class ExperimentParams:
         self.log_interval = -1  # using algorithm default
 
         ###### BatchRL #######
+        self.batch_experience_trained_agent = None      # currently not supported. should be None.
+        # the following combinations for (batch_experience_agent_params,batch_experiece_buffer):
+        # (DQN,None) - will generate buffer from scratch using DQN agent.
+        # if DQNAgentParams.buffer_size==DQNAgentParams.learning_starts - use a pure random agent
+        #
+        # (None,Buf) - load Buf from file and run batch on it
+        # in the future - we'll combine trained, Agent and Buf .
         self.batch_experience_agent_params = None       # determines how the experience buffer is created
                                                         # None = no creation of buffer --> load from file
         self.batch_experience_buffer = None     # path to experience buffer we'll learn from

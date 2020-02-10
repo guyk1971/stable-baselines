@@ -34,8 +34,8 @@ env_params.env_id = 'acrobot'
 # n_cpu_tf_sess = None
 # policy_kwargs = None
 ##########################################################
-batch_experience_agent = DQNAgentParams()
-batch_experience_agent.learning_starts = batch_experience_agent.buffer_size     # for pure random experience
+batch_experience_agent_params = DQNAgentParams()
+batch_experience_agent_params.learning_starts = batch_experience_agent_params.buffer_size   # for pure random experience
 
 
 
@@ -77,10 +77,11 @@ agent_params.exploration_final_eps= 0.1
 # Experiment                                             #
 ##########################################################
 experiment_params = ExperimentParams()
-experiment_params.n_timesteps = 1e5
+# for pure random agent n_timesteps=learning_starts
+experiment_params.n_timesteps = batch_experience_agent_params.learning_starts   # pure random agent
 experiment_params.env_params = env_params
 experiment_params.agent_params = agent_params
-experiment_params.batch_experience_agent = batch_experience_agent
+experiment_params.batch_experience_agent_params = batch_experience_agent_params
 experiment_params.batch_experience_buffer = None
 experiment_params.name = __name__.split('.')[-1]
 
