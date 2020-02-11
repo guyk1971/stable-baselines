@@ -355,7 +355,6 @@ class DBCQAgentParams(AgentParams):
         super(DBCQAgentParams, self).__init__()
         # Default parameters for DQN Agent
         self.algorithm = 'dbcq'
-
         self.policy = 'MlpPolicy'    # or 'CnnPolicy' or 'CustomDQNPolicy'
         self.buffer_size = 50000
         self.learning_rate = 1e-4
@@ -373,9 +372,14 @@ class DBCQAgentParams(AgentParams):
         self.gamma = 0.99
         self.batch_size = 32
         self.double_q = True
+        self.replay_buffer = None
         self.prioritized_replay_beta0 = 0.4
         self.prioritized_replay_beta_iters = None
         self.prioritized_replay_eps = 1e-6
+        # parameters of the generative model for actions
+        self.gen_act_model = 'MlpPolicy'  # 'KNN' for K nearest neighbors, or any DQN policy (see above)
+        self.gen_act_params = {'n_epochs': 50, 'lr':1e-3}   # if KNN it will include the size
+        # self.gen_act_params = {'size': 1000}  # knn parameters
         self.n_cpu_tf_sess = None
         self.policy_kwargs = None
         return

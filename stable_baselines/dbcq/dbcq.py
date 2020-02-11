@@ -26,7 +26,11 @@ class DBCQ(OffPolicyRLModel):
 
 
     :param policy: (DQNPolicy or str) The policy model to use (MlpPolicy, CnnPolicy, LnMlpPolicy, ...)
-    :param env: (Gym environment or str) The environment to learn from (if registered in Gym, can be str)
+    :param env: (Gym environment or str) The environment to evaluate on (if registered in Gym, can be str)
+                Should be the same environment with which we created the buffer we learn fromm
+    :param replay_buffer: (ReplayBuffer) - the buffer from which we'll learn
+    :param gen_act_model: (DQNPolicy or str) the generative model that we'll learn. can also be 'knn'
+            for k nearest neighbor
     :param gamma: (float) discount factor
     :param learning_rate: (float) learning rate for adam optimizer
     :param buffer_size: (int) size of the replay buffer
@@ -58,17 +62,18 @@ class DBCQ(OffPolicyRLModel):
     :param n_cpu_tf_sess: (int) The number of threads for TensorFlow operations
         If None, the number of cpu of the current machine will be used.
     """
-    def __init__(self, policy, env, gamma=0.99, learning_rate=5e-4, buffer_size=50000, exploration_fraction=0.1,
-                 exploration_final_eps=0.02, exploration_initial_eps=1.0, train_freq=1, batch_size=32, double_q=True,
-                 learning_starts=1000, target_network_update_freq=500, prioritized_replay=False,
-                 prioritized_replay_alpha=0.6, prioritized_replay_beta0=0.4, prioritized_replay_beta_iters=None,
-                 prioritized_replay_eps=1e-6, param_noise=False,
+    def __init__(self, policy, env, replay_buffer, gen_act_model=None ,gamma=0.99, learning_rate=5e-4,
+                 exploration_fraction=0.1, exploration_final_eps=0.02, exploration_initial_eps=1.0, train_freq=1,
+                 batch_size=32, double_q=True,learning_starts=1000, target_network_update_freq=500,
+                 prioritized_replay=False, prioritized_replay_alpha=0.6, prioritized_replay_beta0=0.4,
+                 prioritized_replay_beta_iters=None,prioritized_replay_eps=1e-6, param_noise=False,
                  n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
                  _init_setup_model=True, policy_kwargs=None, full_tensorboard_log=False, seed=None):
 
         # TODO: replay_buffer refactoring
-        super(DBCQ, self).__init__(policy=policy, env=env, replay_buffer=None, verbose=verbose, policy_base=DQNPolicy,
-                                  requires_vec_env=False, policy_kwargs=policy_kwargs, seed=seed, n_cpu_tf_sess=n_cpu_tf_sess)
+        super(DBCQ, self).__init__(policy=policy, env=env, replay_buffer=replay_buffer, verbose=verbose,
+                                   policy_base=DQNPolicy, requires_vec_env=False, policy_kwargs=policy_kwargs,
+                                   seed=seed, n_cpu_tf_sess=n_cpu_tf_sess)
 
         self.param_noise = param_noise
         self.learning_starts = learning_starts
@@ -83,7 +88,7 @@ class DBCQ(OffPolicyRLModel):
         self.exploration_final_eps = exploration_final_eps
         self.exploration_initial_eps = exploration_initial_eps
         self.exploration_fraction = exploration_fraction
-        self.buffer_size = buffer_size
+        self.buffer_size = self.replay_buffer.buffer_size
         self.learning_rate = learning_rate
         self.gamma = gamma
         self.tensorboard_log = tensorboard_log
@@ -93,11 +98,11 @@ class DBCQ(OffPolicyRLModel):
         self.graph = None
         self.sess = None
         self._train_step = None
+        self._gen_train_step = None
         self.step_model = None
         self.update_target = None
         self.act = None
         self.proba_step = None
-        self.replay_buffer = None
         self.beta_schedule = None
         self.exploration = None
         self.params = None
@@ -153,6 +158,26 @@ class DBCQ(OffPolicyRLModel):
 
                 self.summary = tf.summary.merge_all()
 
+    def set_replay_buffer(self,replay_buffer):
+        # should I deep copy it ?
+        self.replay_buffer=replay_buffer
+
+    def _setup_learn(self):
+        # call base class to check we have an environment (currently needed for evaluation. in the future we'll do OPE
+        # so we wont need an active env as long as we derive the action and observation space from the buffer)
+        super(DBCQ,self)._setup_learn()
+        # make sure we have a replay buffer
+        if self.replay_buffer is None:
+            raise ValueError("Error: cannot train the BCQ model without a valid replay buffer"
+                             "please set a buffer with set_replay_buffer(self,replay_buffer) method.")
+        # do we need to somehow initialize the buffer ?
+
+    def pretrain_gen_act_model(self):
+        # look at how the base model performs the pretraining. you should do the same here.
+
+        return
+
+
     def learn(self, total_timesteps, callback=None, log_interval=100, tb_log_name="DBCQ",
               reset_num_timesteps=True, replay_wrapper=None):
 
@@ -162,23 +187,21 @@ class DBCQ(OffPolicyRLModel):
                 as writer:
             self._setup_learn()
 
-            # Create the replay buffer
-            if self.prioritized_replay:
-                self.replay_buffer = PrioritizedReplayBuffer(self.buffer_size, alpha=self.prioritized_replay_alpha)
-                if self.prioritized_replay_beta_iters is None:
-                    prioritized_replay_beta_iters = total_timesteps
-                else:
-                    prioritized_replay_beta_iters = self.prioritized_replay_beta_iters
-                self.beta_schedule = LinearSchedule(prioritized_replay_beta_iters,
-                                                    initial_p=self.prioritized_replay_beta0,
-                                                    final_p=1.0)
-            else:
-                self.replay_buffer = ReplayBuffer(self.buffer_size)
-                self.beta_schedule = None
+            # Create the replay buffer - we get the replay buffer from outside.
+            # consider supporting prioritized replay (if it makes sense...)
+            # if self.prioritized_replay:
+            #     self.replay_buffer = PrioritizedReplayBuffer(self.buffer_size, alpha=self.prioritized_replay_alpha)
+            #     if self.prioritized_replay_beta_iters is None:
+            #         prioritized_replay_beta_iters = total_timesteps
+            #     else:
+            #         prioritized_replay_beta_iters = self.prioritized_replay_beta_iters
+            #     self.beta_schedule = LinearSchedule(prioritized_replay_beta_iters,
+            #                                         initial_p=self.prioritized_replay_beta0,
+            #                                         final_p=1.0)
+            # else:
+            #     self.replay_buffer = ReplayBuffer(self.buffer_size)
+            #     self.beta_schedule = None
 
-            if replay_wrapper is not None:
-                assert not self.prioritized_replay, "Prioritized replay buffer is not supported by HER"
-                self.replay_buffer = replay_wrapper(self.replay_buffer)
 
             # Create the schedule for exploration starting from 1.
             self.exploration = LinearSchedule(schedule_timesteps=int(self.exploration_fraction * total_timesteps),
@@ -187,10 +210,15 @@ class DBCQ(OffPolicyRLModel):
 
             episode_rewards = [0.0]
             episode_successes = []
-            obs = self.env.reset()
+            # obs = self.env.reset()
             reset = True
+            print('training the generative model')
+            self.train_gen_act_model()
+            print('finished training the generative model')
 
-            for _ in range(total_timesteps):
+            # in dbcq the timesteps are converted to epochs - depending on the replay buffer size
+            n_epochs = np.ceil(total_timesteps/self.replay_buffer.buffer_size).astype(int)
+            for _ in range(n_epochs):
                 if callback is not None:
                     # Only stop training if return value is False, not when it is None. This is for backwards
                     # compatibility with callbacks that have no return statement.
@@ -300,7 +328,8 @@ class DBCQ(OffPolicyRLModel):
                                           int(100 * self.exploration.value(self.num_timesteps)))
                     logger.dump_tabular()
 
-                self.num_timesteps += 1
+                # in each epoch, we scan through the entire replay_buf
+                self.num_timesteps += self.replay_buffer.buffer_size
 
         return self
 

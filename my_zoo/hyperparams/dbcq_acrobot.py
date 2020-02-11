@@ -67,7 +67,8 @@ agent_params = DBCQAgentParams()
 # here we can change the various parameters - for example, we can change the batch size
 agent_params.policy = CustomDQNPolicy
 agent_params.learning_rate = 1e-3
-agent_params.exploration_final_eps= 0.1
+agent_params.exploration_final_eps = 0.1
+
 
 
 

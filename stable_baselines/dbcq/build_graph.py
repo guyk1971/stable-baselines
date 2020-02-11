@@ -140,6 +140,8 @@ def build_act(q_func, ob_space, ac_space, stochastic_ph, update_eps_ph, sess):
 
     policy = q_func(sess, ob_space, ac_space, 1, 1, None)
     obs_phs = (policy.obs_ph, policy.processed_obs)
+    # todo : define the generative action model and its update function
+
     deterministic_actions = tf.argmax(policy.q_values, axis=1)
 
     batch_size = tf.shape(policy.obs_ph)[0]
