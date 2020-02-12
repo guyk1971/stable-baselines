@@ -34,8 +34,10 @@ env_params.env_id = 'acrobot'
 # n_cpu_tf_sess = None
 # policy_kwargs = None
 ##########################################################
-batch_experience_agent_params = DQNAgentParams()
-batch_experience_agent_params.learning_starts = batch_experience_agent_params.buffer_size   # for pure random experience
+batch_expert_params = DQNAgentParams()
+# for pure random agent behavior, uncomment the below to set the epsilon scheduling accordingly
+batch_expert_params.exploration_fraction=1.0      # explore for the whole timesteps
+batch_expert_params.exploration_final_eps=1.0     # and always (i.e. with prob eps=1.0 ) explore
 
 
 
@@ -78,12 +80,13 @@ agent_params.exploration_final_eps = 0.1
 # Experiment                                             #
 ##########################################################
 experiment_params = ExperimentParams()
-# for pure random agent n_timesteps=learning_starts
-experiment_params.n_timesteps = batch_experience_agent_params.learning_starts   # pure random agent
+experiment_params.n_timesteps = 200     # its a batch agent so n_timesteps means n_epochs
 experiment_params.env_params = env_params
 experiment_params.agent_params = agent_params
-experiment_params.batch_experience_agent_params = batch_experience_agent_params
+experiment_params.batch_expert_params = batch_expert_params
 experiment_params.batch_experience_buffer = None
+experiment_params.batch_expert_n_timesteps = 1e5  # number of timesteps to train the expert before starting to rollout
+experiment_params.batch_expert_n_episodes = 100  # number of episodes to rollout into the buffer
 experiment_params.name = __name__.split('.')[-1]
 
 

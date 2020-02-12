@@ -19,6 +19,10 @@ from stable_baselines.common.vec_env import VecFrameStack, SubprocVecEnv, VecNor
 from stable_baselines.common.noise import AdaptiveParamNoiseSpec, NormalActionNoise, OrnsteinUhlenbeckActionNoise
 from stable_baselines.ppo2.ppo2 import constfn  # todo: consider adding it directly to the config class of ppo
 from stable_baselines.dbcq.replay_buffer import ReplayBuffer
+from stable_baselines.dbcq.expert_dataset import generate_expert_traj
+from stable_baselines.gail import ExpertDataset
+
+
 import copy
 
 try:
@@ -55,8 +59,12 @@ def parse_cmd_line():
 
 
 def create_experience_buffer(experiment_params,output_dir):
-    experience_buffer = None
-    # todo: copy the main flow from train_gymcc
+    '''
+    uses the batch_experience_agent to create an experience buffer in a format that can be wrapped by ExpertData
+    :param experiment_params: to extract tehe parameters of the batch_experience_agent
+    :param output_dir: location of where to save the experience buffer
+    :return: experience_buffer that can be consumed (wrapped) by ExpertData
+    '''
     exp_agent_params = experiment_params.batch_experience_agent_params.as_dict()
     if experiment_params.verbose>0:
         experiment_params.batch_experience_agent_params.verbose = experiment_params.verbose
@@ -101,12 +109,35 @@ def create_experience_buffer(experiment_params,output_dir):
     else:       # create a model from scratch
         model = ALGOS[algo](env=env, **exp_agent_params)
 
-    kwargs = {}
-    if experiment_params.log_interval > -1:
-        kwargs = {'log_interval': experiment_params.log_interval}
+    # prepare the path to save the expert experience buffer
+    exp_agent_algo = experiment_params.batch_experience_agent_params.algorithm
+    exp_buf_filename = 'er_'+experiment_params.env_params.env_id+'_'+exp_agent_algo
+    exp_buf_filename = os.path.join(output_dir,exp_buf_filename)
+    explore_frac=exp_agent_params['exploration_fraction']
+    explore_final_eps = exp_agent_params['exploration_final_eps']
+    logger.info('start generating expert data with exploration fraction and final eps: ({0},{1})'.format(explore_frac,
+                                                                                                   explore_final_eps))
+    if explore_frac==1.0 and explore_final_eps==1.0:
+        logger.info("Using pure random uniform agent")
 
-    model.learn(int(experiment_params.n_timesteps), **kwargs)
-    experience_buffer = copy.deepcopy(model.replay_buffer)
+    # at this point, we have 2 options:
+    #########################
+    # option 1: create it manually
+    # kwargs = {}
+    # if experiment_params.log_interval > -1:
+    #     kwargs = {'log_interval': experiment_params.log_interval}
+
+    # model.learn(int(experiment_params.n_timesteps), **kwargs)
+    # experience_buffer = copy.deepcopy(model.replay_buffer)
+    # # save the experience buffer
+    # experience_buffer.save_for_bc(exp_buf_filename)
+    # # experience_buffer is structured to be wrapped by ExpertData
+    #########################
+    # option 2: use generate_expert_data
+    experience_buffer = generate_expert_traj(model, save_path=exp_buf_filename, env=env,
+                                             n_timesteps=int(experiment_params.n_timesteps),n_episodes=100,
+                                             logger=logger)
+    logger.info('Saving experience buffer to ' + exp_buf_filename)
 
     return experience_buffer
 
@@ -114,18 +145,13 @@ def load_or_create_experience_buffer(experiment_params,output_dir):
     # if we got an existing experience buffer, load from file and return it
     if experiment_params.batch_experience_buffer and os.path.exists(experiment_params.batch_experience_buffer):
         logger.info('loading experience buffer from '+experiment_params.batch_experience_buffer)
-        experience_buffer = ReplayBuffer(experiment_params.batch_experience_agent_params.buffer_size)
-        experience_buffer.load(experiment_params.batch_experience_buffer)
+        # experience_buffer = ReplayBuffer(experiment_params.batch_experience_agent_params.buffer_size)
+        # experience_buffer.load(experiment_params.batch_experience_buffer)
+        experience_buffer = np.load(experiment_params.batch_experience_buffer,allow_pickle=True)
         return experience_buffer
     # if we got to this line, we need to generate an experience buffer
     logger.info('Generating experience buffer with ' + experiment_params.batch_experience_agent_params.algorithm)
-    exp_agent_algo=experiment_params.batch_experience_agent_params.algorithm
     experience_buffer = create_experience_buffer(experiment_params,output_dir)
-    # save the experience buffer
-    exp_buf_filename = 'er_'+experiment_params.env_params.env_id+'_'+exp_agent_algo
-    exp_buf_filename = os.path.join(output_dir,exp_buf_filename)
-    experience_buffer.save(exp_buf_filename)
-    logger.info('Saving experience buffer to ' + exp_buf_filename)
     return experience_buffer
 
 ##############################################################################

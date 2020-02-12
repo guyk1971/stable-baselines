@@ -355,7 +355,7 @@ class DBCQAgentParams(AgentParams):
         super(DBCQAgentParams, self).__init__()
         # Default parameters for DQN Agent
         self.algorithm = 'dbcq'
-        self.policy = 'MlpPolicy'    # or 'CnnPolicy' or 'CustomDQNPolicy'
+        self.policy = 'MlpPolicy'    # or 'CnnPolicy' or 'CustomDQNPolicy' - the main policy that we train
         self.buffer_size = 50000
         self.learning_rate = 1e-4
         self.learning_starts = 1000
@@ -407,25 +407,45 @@ class ExperimentParams:
         self.env_params = None
 
         ###### Agent #######
-        self.trained_agent=None
-        self.agent_params = None        # should be class of agent params e.g. DQNAgentParams()
+        # (pretrain_dataset,pretrain_expert_agent) are related as follows:
+        # dataset = None, expert_agent = None : no pretraing
+        # dataset != None, expert_agent = None : pretrain from existing buffer
+        # dataset = None, expert_agent != None : Illegal option. agent must have path to save
+        # dataset != None, expert_agent != None : use expert to write to pretrain_dataset and then pretrain
+        self.pretrain_dataset = None            # path to experience buffer that can be wrapped by ExpertData
+                                                # if None, there's no pre-train
+                                                # else: either load the dataset or write to this path
+        self.pretrain_expert_params = None   # parameters of agent to generate experience for pretrain
+        self.pretrain_expert_n_timesteps = 1e5  # number of timesteps to train the expert before it generates the data
+        self.pretrain_dataset_n_episodes = 100  # number of episode to generate in the pretrain buffer
+        # given we do pretraining, use the following for pretrain (behavioral cloning)
+        self.pretrain_epochs = 10               # number of epochs to train on the expert data
+        self.pretrain_lr = 1e-4
+
+        # trained agent - if we want to continue training from a saved agent
+        self.trained_agent=None         # path to main pretrained agent - to continue training
+        self.agent_params = None        # agent that trains the main policy.
+                                        # should be class of agent params e.g. DQNAgentParams()
         # training params
-        self.n_timesteps = 1e5
-        self.log_interval = -1  # using algorithm default
+        self.n_timesteps = 1e5          # number of timesteps (or epochs in batch mode) to train main policy
+        self.log_interval = -1          # using algorithm default
 
         ###### BatchRL #######
-        self.batch_experience_trained_agent = None      # currently not supported. should be None.
-        # the following combinations for (batch_experience_agent_params,batch_experiece_buffer):
-        # (DQN,None) - will generate buffer from scratch using DQN agent.
-        # if DQNAgentParams.buffer_size==DQNAgentParams.learning_starts - use a pure random agent
-        #
-        # (None,Buf) - load Buf from file and run batch on it
-        # in the future - we'll combine trained, Agent and Buf .
-        self.batch_experience_agent_params = None       # determines how the experience buffer is created
-                                                        # None = no creation of buffer --> load from file
+        self.batch_experience_trained_agent = None      # path to trained agent to generate experience for batch rl
+                                                        # if not None, will load it to generate the buffer
+                                                        # currently not supported. SHOULD BE 'None' !
+        # the following combinations for (batch_expert_params,batch_experiece_buffer)
+        # (DQN,None) - will generate buffer from scratch using DQN agent and save to file 'dataset_<env_id>_<agent_id>'
+        # (None,Buf) - load the buffer from file (convert to ExpertData if needed)
+        # (None,None) - no batch mode. Illegal if the agent is one of batch mode agents.
+        # Note that we currently have only one agent for batch mode : DBCQ.
+        # if we want DQN to train on batch mode, we need to change it --> create a distinct version.
+        self.batch_expert_params = None         # can be any AgentParams from above (assuming coherency in obs,act)
         self.batch_experience_buffer = None     # path to experience buffer we'll learn from
                                                 # name template: experience_<env-id>_<agent-id>.npy
-        self.batch_n_epochs = 200               # number of epochs to train
+        self.batch_expert_n_timesteps = 1e5     # number of timesteps to train the expert before starting to rollout
+        self.batch_expert_n_episodes = 100      # number of episodes to rollout into the buffer
+
         self.online_evaluation = True           # whether to use evaluation environment
         self.offline_evaluation_split = 0.0     # if >0 perform offline evaluation on this fraction of experience
                                                 # e.g. if 0.2, train on 80%, evaluate on 20%

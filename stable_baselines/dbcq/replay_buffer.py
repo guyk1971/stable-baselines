@@ -96,6 +96,43 @@ class ReplayBuffer(object):
 
     def save(self,filename):
         np.save(filename,self._storage)
+
+    def save_for_bc(self,filename):
+        # saves the experience buffer s.t. it has the fields needed to be loaded as ExpertData
+        # it includes the following fields as described in ExpertData class:
+        #     The structure of the expert dataset is a dict, saved as an ".npz" archive.
+        #     The dictionary contains the keys 'actions', 'episode_returns', 'rewards', 'obs' and 'episode_starts'.
+        #     The corresponding values have data concatenated across episode: the first axis is the timestep,
+        #     the remaining axes index into the data. In case of images, 'obs' contains the relative path to
+        #     the images, to enable space saving from image compression.
+        # Note:
+        #   - we currently do not support image encoding
+        #   - since we didnt necessarily used episodic buffer, we dont know the limits of episode in the buffer
+        #     it could be that the buffer wrapped around and we have a mixture of episodes (concatenation of
+        #     sub episodes that can look like one longer episode). since this information is anyway not needed
+        #     for behavioral cloning (as we load only the observations and actions) we simply generate artificial
+        #     arrays for 'episode_returns' and 'episode_starts'.
+        #     The consequence of it is that ExpertDataset can't understand the episodic structure so we cant limit
+        #     the dataset to maximum number of episodes.
+
+        indxs = range(self.buffer_size) if self.is_full() else range(self._next_idx)
+        obses_t, actions, rewards, obses_tp1, dones = self._encode_sample(indxs)
+        n_samples = len(obses_t)
+        # note : I chose to represent the buffer as length 1 episodes s.t. ExpertData will provide some statistics
+        # about the rewards in the buffer (the statistics is related only to episode returns so representing each
+        # transition as 1-step episode, we get statistics for the rewards)
+        episode_returns = rewards
+        episode_starts = np.ones((n_samples,))
+        numpy_dict = {
+            'actions': actions,
+            'obs': obses_t,
+            'rewards': rewards,
+            'episode_returns': episode_returns,
+            'episode_starts': episode_starts
+        }
+        np.savez(filename, **numpy_dict)
+        return
+
     def load(self,filename):
         self._storage = np.load(filename,allow_pickle=True)
         self._maxsize = max(self._maxsize,len(self._storage))

@@ -172,9 +172,8 @@ class DBCQ(OffPolicyRLModel):
                              "please set a buffer with set_replay_buffer(self,replay_buffer) method.")
         # do we need to somehow initialize the buffer ?
 
-    def pretrain_gen_act_model(self):
+    def train_gen_act_model(self):
         # look at how the base model performs the pretraining. you should do the same here.
-
         return
 
 
