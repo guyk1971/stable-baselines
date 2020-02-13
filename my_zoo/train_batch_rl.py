@@ -21,6 +21,7 @@ from stable_baselines.ppo2.ppo2 import constfn  # todo: consider adding it direc
 from stable_baselines.dbcq.replay_buffer import ReplayBuffer
 from stable_baselines.dbcq.expert_dataset import generate_expert_traj
 from stable_baselines.gail import ExpertDataset
+from stable_baselines.dbcq.dbcq import DBCQ
 
 
 import copy
@@ -57,6 +58,13 @@ def parse_cmd_line():
     args = parser.parse_args()
     return args
 
+def env_make(n_envs,env_params,algo,seed):
+    env_id = env_params.env_id
+    logger.info('using {0} instances of {1} :'.format(n_envs,env_id))
+    create_env = get_create_env(algo,seed,env_params,logger)
+    env = create_env(n_envs)
+    return env
+
 
 def create_experience_buffer(experiment_params,output_dir):
     '''
@@ -72,15 +80,10 @@ def create_experience_buffer(experiment_params,output_dir):
 
     algo = exp_agent_params['algorithm']
     seed = experiment_params.batch_experience_agent_params.seed
-
     ###################
     # make the env
     n_envs = experiment_params.n_envs
-    env_id = experiment_params.env_params.env_id
-    logger.info('using {0} instances of {1} :'.format(n_envs,env_id))
-    create_env = get_create_env(algo,seed,experiment_params.env_params,logger)
-    env = create_env(n_envs)
-
+    env = env_make(n_envs,experiment_params.env_params,algo,seed)
     #####################
     # create the agent
     if ALGOS[algo] is None:
@@ -138,7 +141,7 @@ def create_experience_buffer(experiment_params,output_dir):
                                              n_timesteps=int(experiment_params.n_timesteps),n_episodes=100,
                                              logger=logger)
     logger.info('Saving experience buffer to ' + exp_buf_filename)
-
+    env.close()
     return experience_buffer
 
 def load_or_create_experience_buffer(experiment_params,output_dir):
@@ -186,9 +189,9 @@ def run_experiment(experiment_params):
     experiment_params.agent_params.seed = seed
 
     saved_exp_agent_hparams = None
-    if experiment_params.batch_experience_agent_params:
-        experiment_params.batch_experience_agent_params.seed = seed
-        exp_agent_hparams = experiment_params.batch_experience_agent_params.as_dict()
+    if experiment_params.batch_expert_params:
+        experiment_params.batch_expert_params.seed = seed
+        exp_agent_hparams = experiment_params.batch_expert_params.as_dict()
         saved_exp_agent_hparams = OrderedDict(
             [(key, str(exp_agent_hparams[key])) for key in sorted(exp_agent_hparams.keys())])
 
@@ -202,14 +205,56 @@ def run_experiment(experiment_params):
     saved_hyperparams = OrderedDict([(key, str(exparams_dict[key])) for key in exparams_dict.keys()])
     saved_hyperparams['agent_params']=saved_agent_hparams
     saved_hyperparams['env_params'] = saved_env_params
-    saved_hyperparams['batch_experience_agent_params'] = saved_exp_agent_hparams
+    saved_hyperparams['batch_expert_params'] = saved_exp_agent_hparams
 
     # load or create the experience replay buffer
     er_buf = load_or_create_experience_buffer(experiment_params,output_dir)
-
     # start batch rl training
     logger.info("Experience buffer is ready with {0} samples".format(er_buf.buffer_size))
     logger.info(title('start batch training',30))
+
+    ###################
+    # make the env for evaluation
+    algo = agent_hyperparams['algorithm']
+    n_envs = experiment_params.n_envs
+    env = env_make(n_envs,experiment_params.env_params,algo,seed)
+
+    #####################
+    # create the agent
+    n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
+    # since the batch algorithm is currently only dbcq, no need to parse agent params
+    # but we need to drop the algorithm from the parameters (as done in parse_agent_params)
+    # parse_agent_params(agent_hyperparams,n_actions,experiment_params.n_timesteps,logger)
+    del agent_hyperparams['algorithm']
+
+    normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
+    if normalize:
+        logger.warning("normalize observation or reward should be handled in batch mode")
+
+    trained_agent = experiment_params.trained_agent
+    if trained_agent:
+        valid_extension = trained_agent.endswith('.pkl') or trained_agent.endswith('.zip')
+        assert valid_extension and os.path.isfile(trained_agent), \
+            "The trained_agent must be a valid path to a .zip/.pkl file"
+        logger.info("loading pretrained agent to continue training")
+        # if policy is defined, delete as it will be loaded with the trained agent
+        del agent_hyperparams['policy']
+        # model = ALGOS[algo].load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
+        model = DBCQ.load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
+
+    else:  # create a model from scratch
+        # model = ALGOS[algo](env=env, replay_buffer=er_buf, **agent_hyperparams)
+        model = DBCQ(env=env, replay_buffer=er_buf, **agent_hyperparams)
+
+    kwargs = {}
+    if experiment_params.log_interval > -1:
+        kwargs = {'log_interval': experiment_params.log_interval}
+    model.learn(int(experiment_params.n_timesteps), **kwargs)
+
+    # Save trained model
+    save_path = output_dir
+    params_path = "{}/{}".format(save_path, 'model_params')
+    os.makedirs(params_path, exist_ok=True)
 
     return
 

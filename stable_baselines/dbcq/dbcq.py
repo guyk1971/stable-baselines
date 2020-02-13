@@ -12,6 +12,8 @@ from stable_baselines.dbcq.build_graph import build_train
 from stable_baselines.dbcq.replay_buffer import ReplayBuffer, PrioritizedReplayBuffer
 from stable_baselines.dbcq.policies import DQNPolicy
 from stable_baselines.a2c.utils import total_episode_reward_logger
+from stable_baselines.gail import ExpertDataset
+
 
 
 class DBCQ(OffPolicyRLModel):

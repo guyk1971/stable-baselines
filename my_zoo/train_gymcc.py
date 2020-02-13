@@ -277,11 +277,6 @@ def run_experiment(experiment_params):
     n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
     parse_agent_params(agent_hyperparams,n_actions,experiment_params.n_timesteps)
 
-    if experiment_params.trained_agent:
-        valid_extension = experiment_params.trained_agent.endswith('.pkl') or experiment_params.trained_agent.endswith('.zip')
-        assert valid_extension and os.path.isfile(experiment_params.trained_agent), \
-            "The trained_agent must be a valid path to a .zip/.pkl file"
-
     # todo: handle the case of "her" wrapper.
     # todo : add support in hyper parameter search using optuna. put parameters in configuration files
     if experiment_params.hp_optimize:
