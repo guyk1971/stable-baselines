@@ -367,7 +367,11 @@ class DBCQAgentParams(AgentParams):
         self.prioritized_replay_alpha = 0.6
         self.prioritized_replay = False
         self.param_noise = False
-
+        self.act_distance_thresh = 0.3          # if gen_act_policy is Neural Net - corresponds to the threshold tau
+                                                # i.e. actions with likelihood ratio larger than threshold will be
+                                                # considered as candidates
+                                                # if gen_act_policy is KNN - the max distance from nearest neighbor
+                                                # s.t. actions that are farther will be thrown
         # other default params
         self.gamma = 0.99
         self.batch_size = 32
@@ -380,7 +384,7 @@ class DBCQAgentParams(AgentParams):
         self.prioritized_replay_eps = 1e-6
         # parameters of the generative model for actions
         self.gen_act_model = 'MlpPolicy'  # 'KNN' for K nearest neighbors, or any DQN policy (see above)
-        self.gen_act_params = {'n_epochs': 50, 'lr':1e-3}   # if KNN it will include the size
+        self.gen_act_params = {'n_epochs': 50, 'lr':1e-3, 'train_frac':0.7, 'batch_size':64}
         # self.gen_act_params = {'size': 1000}  # knn parameters
         self.n_cpu_tf_sess = None
         self.policy_kwargs = None

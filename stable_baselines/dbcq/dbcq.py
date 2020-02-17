@@ -15,6 +15,21 @@ from stable_baselines.a2c.utils import total_episode_reward_logger
 from stable_baselines.gail import ExpertDataset
 
 
+def online_policy_eval(policy, env, eval_episodes=100):
+    avg_reward = 0.
+    for _ in range(eval_episodes):
+        obs = env.reset()
+        done = False
+        while not done:
+            action = policy.select_action(np.array(obs))
+            obs, reward, done, _ = env.step(action)
+            avg_reward += reward
+
+    avg_reward /= eval_episodes
+    # print("Evaluation over {} episodes: {:.1f}".format(eval_episodes, avg_reward))
+    return avg_reward
+
+
 
 class DBCQ(OffPolicyRLModel):
     """
@@ -29,7 +44,8 @@ class DBCQ(OffPolicyRLModel):
 
     :param policy: (DQNPolicy or str) The policy model to use (MlpPolicy, CnnPolicy, LnMlpPolicy, ...)
     :param env: (Gym environment or str) The environment to evaluate on (if registered in Gym, can be str)
-                Should be the same environment with which we created the buffer we learn fromm
+                Should be the same environment with which we created the buffer we learn from.
+                if env=None and val_freq>0 we need to do OPE. currently its not supported.
     :param replay_buffer: (ReplayBuffer) - the buffer from which we'll learn
     :param gen_act_model: (DQNPolicy or str) the generative model that we'll learn. can also be 'knn'
             for k nearest neighbor
@@ -40,7 +56,8 @@ class DBCQ(OffPolicyRLModel):
             annealed
     :param exploration_final_eps: (float) final value of random action probability
     :param exploration_initial_eps: (float) initial value of random action probability
-    :param train_freq: (int) update the model every `train_freq` steps. set to None to disable printing
+    :param train_freq: (int) update the model every `train_freq` epochs.
+    :param val_freq: (int) perform validation every `val_freq` epochs. set to 0 to avoid validation.
     :param batch_size: (int) size of a batched sampled from replay buffer for training
     :param double_q: (bool) Whether to enable Double-Q learning or not.
     :param learning_starts: (int) how many steps of the model to collect transitions for before learning starts
@@ -66,8 +83,9 @@ class DBCQ(OffPolicyRLModel):
     """
     def __init__(self, policy, env, replay_buffer, gen_act_model=None ,gamma=0.99, learning_rate=5e-4,
                  exploration_fraction=0.1, exploration_final_eps=0.02, exploration_initial_eps=1.0, train_freq=1,
-                 batch_size=32, double_q=True,learning_starts=1000, target_network_update_freq=500,
+                 val_freq=0, batch_size=32, double_q=True,learning_starts=1000, target_network_update_freq=500,
                  prioritized_replay=False, prioritized_replay_alpha=0.6, prioritized_replay_beta0=0.4,
+                 buffer_train_fraction=0.8, gen_act_params = None,
                  prioritized_replay_beta_iters=None,prioritized_replay_eps=1e-6, param_noise=False,
                  n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
                  _init_setup_model=True, policy_kwargs=None, full_tensorboard_log=False, seed=None):
@@ -80,6 +98,7 @@ class DBCQ(OffPolicyRLModel):
         self.param_noise = param_noise
         self.learning_starts = learning_starts
         self.train_freq = train_freq
+        self.val_freq = val_freq
         self.prioritized_replay = prioritized_replay
         self.prioritized_replay_eps = prioritized_replay_eps
         self.batch_size = batch_size
@@ -96,7 +115,9 @@ class DBCQ(OffPolicyRLModel):
         self.tensorboard_log = tensorboard_log
         self.full_tensorboard_log = full_tensorboard_log
         self.double_q = double_q
-
+        self.gen_act_model = gen_act_model
+        self.buffer_train_fraction = buffer_train_fraction
+        self.gen_act_params = gen_act_params
         self.graph = None
         self.sess = None
         self._train_step = None
@@ -113,9 +134,18 @@ class DBCQ(OffPolicyRLModel):
         if _init_setup_model:
             self.setup_model()
 
+        if self.env is None and self.val_freq>0:
+            print('env is not provided. validation is skipped.')
+            self.val_freq = 0       # currently we dont have Off Policy Evaluation so without env we skip validation
+
     def _get_pretrain_placeholders(self):
         policy = self.step_model
         return policy.obs_ph, tf.placeholder(tf.int32, [None]), policy.q_values
+
+    def _get_gen_act_placeholders(self):
+        policy = self.gen_act_model
+        return policy.obs_ph, tf.placeholder(tf.int32, [None]), policy.q_values
+
 
     def setup_model(self):
 
@@ -141,6 +171,7 @@ class DBCQ(OffPolicyRLModel):
 
                 self.act, self._train_step, self.update_target, self.step_model = build_train(
                     q_func=partial(self.policy, **self.policy_kwargs),
+                    gen_act_policy=self.gen_act_model,
                     ob_space=self.observation_space,
                     ac_space=self.action_space,
                     optimizer=optimizer,
@@ -167,171 +198,152 @@ class DBCQ(OffPolicyRLModel):
     def _setup_learn(self):
         # call base class to check we have an environment (currently needed for evaluation. in the future we'll do OPE
         # so we wont need an active env as long as we derive the action and observation space from the buffer)
-        super(DBCQ,self)._setup_learn()
         # make sure we have a replay buffer
         if self.replay_buffer is None:
             raise ValueError("Error: cannot train the BCQ model without a valid replay buffer"
                              "please set a buffer with set_replay_buffer(self,replay_buffer) method.")
-        # do we need to somehow initialize the buffer ?
+        # wrap the replay buffer as ExpertDataset
+        self.dataset = ExpertDataset(traj_data=self.replay_buffer,train_fraction=self.buffer_train_fraction,
+                                     batch_size=self.batch_size)
 
-    def train_gen_act_model(self):
+    def train_gen_act_model(self,val_interval=None):
         # look at how the base model performs the pretraining. you should do the same here.
-        return
+        if self.gen_act_params is None:
+            n_epochs = 50
+            lr=1e-3     # learning rate
+            batch_size=64
+            train_frac=0.7
+        else:
+            n_epochs = self.gen_act_params.get('n_epochs',50)
+            lr = self.gen_act_params.get('lr',1e-3)
+            batch_size = self.gen_act_params.get('batch_size',64)
+            train_frac = self.gen_act_params.get('train_frac',0.7)
 
+        if val_interval is None:
+            # Prevent modulo by zero
+            if n_epochs < 10:
+                val_interval = 1
+            else:
+                val_interval = int(n_epochs / 10)
+        dataset = ExpertDataset(traj_data=self.replay_buffer,train_fraction=train_frac,batch_size=batch_size)
+        with self.graph.as_default():
+            with tf.variable_scope('gen_act_train'):
+                obs_ph, actions_ph, actions_logits_ph = self._get_gen_act_placeholders()
+                # actions_ph has a shape if (n_batch,), we reshape it to (n_batch, 1)
+                # so no additional changes is needed in the dataloader
+                actions_ph = tf.expand_dims(actions_ph, axis=1)
+                one_hot_actions = tf.one_hot(actions_ph, self.action_space.n)
+                loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+                    logits=actions_logits_ph,
+                    labels=tf.stop_gradient(one_hot_actions)
+                )
+                loss = tf.reduce_mean(loss)
+                optimizer = tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-8)
+                optim_op = optimizer.minimize(loss, var_list=self.params)
+
+            self.sess.run(tf.global_variables_initializer())
+
+        if self.verbose > 0:
+            print("Training generative model with Behavior Cloning...")
+
+        for epoch_idx in range(int(n_epochs)):
+            train_loss = 0.0
+            # Full pass on the training set
+            for _ in range(len(dataset.train_loader)):
+                expert_obs, expert_actions = dataset.get_next_batch('train')
+                feed_dict = {
+                    obs_ph: expert_obs,
+                    actions_ph: expert_actions,
+                }
+                train_loss_, _ = self.sess.run([loss, optim_op], feed_dict)
+                train_loss += train_loss_
+
+            train_loss /= len(dataset.train_loader)
+
+            if self.verbose > 0 and (epoch_idx + 1) % val_interval == 0:
+                val_loss = 0.0
+                # Full pass on the validation set
+                for _ in range(len(dataset.val_loader)):
+                    expert_obs, expert_actions = dataset.get_next_batch('val')
+                    val_loss_, = self.sess.run([loss], {obs_ph: expert_obs,
+                                                        actions_ph: expert_actions})
+                    val_loss += val_loss_
+
+                val_loss /= len(dataset.val_loader)
+                if self.verbose > 0:
+                    print("==== Training progress {:.2f}% ====".format(100 * (epoch_idx + 1) / n_epochs))
+                    print('Epoch {}'.format(epoch_idx + 1))
+                    print("Training loss: {:.6f}, Validation loss: {:.6f}".format(train_loss, val_loss))
+                    print()
+            # Free memory
+            del expert_obs, expert_actions
+        if self.verbose > 0:
+            print("generative model training done.")
+        return
 
     def learn(self, total_timesteps, callback=None, log_interval=100, tb_log_name="DBCQ",
               reset_num_timesteps=True, replay_wrapper=None):
-
+        # todo: build the learning procedure here... (look at learn_old an the base model's pretrain)
         new_tb_log = self._init_num_timesteps(reset_num_timesteps)
 
         with SetVerbosity(self.verbose), TensorboardWriter(self.graph, self.tensorboard_log, tb_log_name, new_tb_log) \
                 as writer:
             self._setup_learn()
-
-            # Create the replay buffer - we get the replay buffer from outside.
-            # consider supporting prioritized replay (if it makes sense...)
-            # if self.prioritized_replay:
-            #     self.replay_buffer = PrioritizedReplayBuffer(self.buffer_size, alpha=self.prioritized_replay_alpha)
-            #     if self.prioritized_replay_beta_iters is None:
-            #         prioritized_replay_beta_iters = total_timesteps
-            #     else:
-            #         prioritized_replay_beta_iters = self.prioritized_replay_beta_iters
-            #     self.beta_schedule = LinearSchedule(prioritized_replay_beta_iters,
-            #                                         initial_p=self.prioritized_replay_beta0,
-            #                                         final_p=1.0)
-            # else:
-            #     self.replay_buffer = ReplayBuffer(self.buffer_size)
-            #     self.beta_schedule = None
-
-
-            # Create the schedule for exploration starting from 1.
-            self.exploration = LinearSchedule(schedule_timesteps=int(self.exploration_fraction * total_timesteps),
-                                              initial_p=self.exploration_initial_eps,
-                                              final_p=self.exploration_final_eps)
-
-            episode_rewards = [0.0]
-            episode_successes = []
-            # obs = self.env.reset()
-            reset = True
             print('training the generative model')
             self.train_gen_act_model()
             print('finished training the generative model')
-
-            # in dbcq the timesteps are converted to epochs - depending on the replay buffer size
-            n_epochs = np.ceil(total_timesteps/self.replay_buffer.buffer_size).astype(int)
+            # n_epochs = np.ceil(total_timesteps / self.replay_buffer.buffer_size).astype(int)
+            n_epochs = total_timesteps
             for _ in range(n_epochs):
                 if callback is not None:
                     # Only stop training if return value is False, not when it is None. This is for backwards
                     # compatibility with callbacks that have no return statement.
                     if callback(locals(), globals()) is False:
                         break
-                # Take action and update exploration to the newest value
-                kwargs = {}
-                if not self.param_noise:
-                    update_eps = self.exploration.value(self.num_timesteps)
-                    update_param_noise_threshold = 0.
-                else:
-                    update_eps = 0.
-                    # Compute the threshold such that the KL divergence between perturbed and non-perturbed
-                    # policy is comparable to eps-greedy exploration with eps = exploration.value(t).
-                    # See Appendix C.1 in Parameter Space Noise for Exploration, Plappert et al., 2017
-                    # for detailed explanation.
-                    update_param_noise_threshold = \
-                        -np.log(1. - self.exploration.value(self.num_timesteps) +
-                                self.exploration.value(self.num_timesteps) / float(self.env.action_space.n))
-                    kwargs['reset'] = reset
-                    kwargs['update_param_noise_threshold'] = update_param_noise_threshold
-                    kwargs['update_param_noise_scale'] = True
-                with self.sess.as_default():
-                    action = self.act(np.array(obs)[None], update_eps=update_eps, **kwargs)[0]
-                env_action = action
-                reset = False
-                new_obs, rew, done, info = self.env.step(env_action)
-                # Store transition in the replay buffer.
-                self.replay_buffer.add(obs, action, rew, new_obs, float(done))
-                obs = new_obs
+                # Full pass on the training set
+                it = 0
+                for _ in range(len(self.dataset.train_loader)):
+                    # expert_obs, expert_actions = self.dataset.get_next_batch('train')
+                    # feed_dict = {
+                    #     obs_ph: expert_obs,
+                    #     actions_ph: expert_actions,
+                    # }
+                    # train_loss_, _ = self.sess.run([loss, optim_op], feed_dict)
+                    # train_loss += train_loss_
 
-                if writer is not None:
-                    ep_rew = np.array([rew]).reshape((1, -1))
-                    ep_done = np.array([done]).reshape((1, -1))
-                    total_episode_reward_logger(self.episode_reward, ep_rew, ep_done, writer,
-                                                self.num_timesteps)
-
-                episode_rewards[-1] += rew
-                if done:
-                    maybe_is_success = info.get('is_success')
-                    if maybe_is_success is not None:
-                        episode_successes.append(float(maybe_is_success))
-                    if not isinstance(self.env, VecEnv):
-                        obs = self.env.reset()
-                    episode_rewards.append(0.0)
-                    reset = True
-
-                # Do not train if the warmup phase is not over
-                # or if there are not enough samples in the replay buffer
-                can_sample = self.replay_buffer.can_sample(self.batch_size)
-                if can_sample and self.num_timesteps > self.learning_starts \
-                        and self.num_timesteps % self.train_freq == 0:
-                    # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
-                    # pytype:disable=bad-unpacking
-                    if self.prioritized_replay:
-                        assert self.beta_schedule is not None, \
-                               "BUG: should be LinearSchedule when self.prioritized_replay True"
-                        experience = self.replay_buffer.sample(self.batch_size,
-                                                               beta=self.beta_schedule.value(self.num_timesteps))
-                        (obses_t, actions, rewards, obses_tp1, dones, weights, batch_idxes) = experience
-                    else:
-                        obses_t, actions, rewards, obses_tp1, dones = self.replay_buffer.sample(self.batch_size)
-                        weights, batch_idxes = np.ones_like(rewards), None
-                    # pytype:enable=bad-unpacking
+                    obses_t, actions, rewards, obses_tp1, dones = self.dataset.get_next_batch('train')
+                    weights, batch_idxes = np.ones_like(rewards), None
 
                     if writer is not None:
                         # run loss backprop with summary, but once every 100 steps save the metadata
                         # (memory, compute time, ...)
-                        if (1 + self.num_timesteps) % 100 == 0:
+                        if (1 + n_epochs) % 10 == 0:
                             run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                             run_metadata = tf.RunMetadata()
-                            summary, td_errors = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1,
+                            summary, loss = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1,
                                                                   dones, weights, sess=self.sess, options=run_options,
                                                                   run_metadata=run_metadata)
                             writer.add_run_metadata(run_metadata, 'step%d' % self.num_timesteps)
                         else:
-                            summary, td_errors = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1,
+                            summary, loss = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1,
                                                                   dones, weights, sess=self.sess)
                         writer.add_summary(summary, self.num_timesteps)
                     else:
-                        _, td_errors = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1, dones, weights,
+                        _, loss = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1, dones, weights,
                                                         sess=self.sess)
+                    it += 1     # iteration count
+                avg_epoch_loss = loss/len(self.dataset.train_loader)
 
-                    if self.prioritized_replay:
-                        new_priorities = np.abs(td_errors) + self.prioritized_replay_eps
-                        assert isinstance(self.replay_buffer, PrioritizedReplayBuffer)
-                        self.replay_buffer.update_priorities(batch_idxes, new_priorities)
-
-                if can_sample and self.num_timesteps > self.learning_starts and \
-                        self.num_timesteps % self.target_network_update_freq == 0:
+                if n_epochs % self.target_network_update_freq == 0:
                     # Update target network periodically.
                     self.update_target(sess=self.sess)
 
-                if len(episode_rewards[-101:-1]) == 0:
-                    mean_100ep_reward = -np.inf
-                else:
-                    mean_100ep_reward = round(float(np.mean(episode_rewards[-101:-1])), 1)
-
-                num_episodes = len(episode_rewards)
-                if self.verbose >= 1 and done and log_interval is not None and len(episode_rewards) % log_interval == 0:
-                    logger.record_tabular("steps", self.num_timesteps)
-                    logger.record_tabular("episodes", num_episodes)
-                    if len(episode_successes) > 0:
-                        logger.logkv("success rate", np.mean(episode_successes[-100:]))
-                    logger.record_tabular("mean 100 episode reward", mean_100ep_reward)
-                    logger.record_tabular("% time spent exploring",
-                                          int(100 * self.exploration.value(self.num_timesteps)))
-                    logger.dump_tabular()
-
-                # in each epoch, we scan through the entire replay_buf
-                self.num_timesteps += self.replay_buffer.buffer_size
-
+                if (n_epochs+1) % self.val_freq == 0:
+                    if self.env is not None:
+                        mean_reward = online_policy_eval(self.step_model,self.env)
+                        print("Evaluating on env: mean reward={0}".format(mean_reward))
+                    else:
+                        raise RuntimeError("Off Policy Evaluation is not supported yet")
         return self
 
     def predict(self, observation, state=None, mask=None, deterministic=True):

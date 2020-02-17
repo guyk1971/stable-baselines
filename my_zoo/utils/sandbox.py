@@ -39,3 +39,16 @@ sys.stderr = sl
 
 print("Test to standard out")
 raise Exception('Test to standard error')
+
+
+N=10
+n_a=5
+tf.reset_default_graph()
+gw_logits=tf.random.uniform(shape=(N,n_a),minval=-10,maxval=10)
+tau=tf.placeholder(tf.float32,shape=())
+gw_max=tf.reduce_max(gw_logits,axis=1,keepdims=True)
+gw_norm=tf.math.subtract(gw_logits,gw_max)
+gw_masked=tf.where(gw_norm>tf.math.log(tau),gw_logits,tf.broadcast_to(tf.constant(-1000.0),shape=gw_logits.shape))
+
+S=tf.Session()
+gwl_vals,gwm_vals=S.run([gw_logits,gw_masked],feed_dict={tau:0.3})
