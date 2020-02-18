@@ -366,6 +366,9 @@ class DBCQAgentParams(AgentParams):
         self.exploration_fraction = 0.1
         self.prioritized_replay_alpha = 0.6
         self.prioritized_replay = False
+        self.prioritized_replay_beta0 = 0.4
+        self.prioritized_replay_beta_iters = None
+        self.prioritized_replay_eps = 1e-6
         self.param_noise = False
         self.act_distance_thresh = 0.3          # if gen_act_policy is Neural Net - corresponds to the threshold tau
                                                 # i.e. actions with likelihood ratio larger than threshold will be
@@ -375,13 +378,10 @@ class DBCQAgentParams(AgentParams):
         # other default params
         self.gamma = 0.99
         self.batch_size = 32
-        self.double_q = True
+        self.double_q = False
         self.replay_buffer = None
         self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
                                                 # the rest (20%) will be used for Off policy evaluation
-        self.prioritized_replay_beta0 = 0.4
-        self.prioritized_replay_beta_iters = None
-        self.prioritized_replay_eps = 1e-6
         # parameters of the generative model for actions
         self.gen_act_model = 'MlpPolicy'  # 'KNN' for K nearest neighbors, or any DQN policy (see above)
         self.gen_act_params = {'n_epochs': 50, 'lr':1e-3, 'train_frac':0.7, 'batch_size':64}
@@ -450,7 +450,7 @@ class ExperimentParams:
         self.batch_experience_buffer = None     # path to experience buffer we'll learn from
                                                 # name template: experience_<env-id>_<agent-id>.npy
         self.batch_expert_n_timesteps = 1e5     # number of timesteps to train the expert before starting to rollout
-        self.batch_expert_n_episodes = 100      # number of episodes to rollout into the buffer
+        self.batch_expert_n_episodes = 100      # number of episodes to rollout into the experience buffer
 
         self.online_evaluation = True           # whether to use evaluation environment
         self.offline_evaluation_split = 0.0     # if >0 perform offline evaluation on this fraction of experience

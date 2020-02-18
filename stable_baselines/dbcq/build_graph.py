@@ -123,9 +123,17 @@ def default_param_noise_filter(var):
     return False
 
 
-def build_act(q_func, gen_act_policy, ob_space, ac_space, act_dist_thresh_ph, sess):
+def build_act(q_func, gen_act_policy, ob_space, ac_space, stochastic_ph,update_eps_ph, act_dist_thresh_ph, sess):
     """
     Creates the act function:
+    the act function is used for feeding the experience buffer while exploring - using epsilon greedy policy:
+    if deterministic (i.e. stochastic_ph is false) - be greedy. take the argmax(q_values)
+    if stochastic - choose randomly (uniform)
+
+    the act_f also support epsilon decay.
+
+    Note that it is not used for evaluation. the evaluation is done using step_model.step where its stochastic mode
+    is np.random.choice(n_actions, prob=q_values) - no epsilon greedy.
 
     :param q_func: (DQNPolicy) the policy
     :param gen_act_policy: (DQNPolicy) a generative model for the action
@@ -137,32 +145,33 @@ def build_act(q_func, gen_act_policy, ob_space, ac_space, act_dist_thresh_ph, se
         act function to select and action given observation (See the top of the file for details),
         A tuple containing the observation placeholder and the processed observation placeholder respectively.
     """
-    # eps = tf.get_variable("eps", (), initializer=tf.constant_initializer(0))
+    eps = tf.get_variable("eps", (), initializer=tf.constant_initializer(0))
 
     policy = q_func(sess, ob_space, ac_space, 1, 1, None)
     obs_phs = (policy.obs_ph, policy.processed_obs)
+    deterministic_actions = tf.argmax(policy.q_values, axis=1)
 
-    # selecting actions subject to distance from gen_act_model:
-    gen_act_logits = gen_act_policy.q_values
-    max_gen_act_logit = tf.reduce_max(gen_act_logits,axis=1,keepdims=True)
-    act_llr = tf.math.subtract(gen_act_logits,max_gen_act_logit)
-    masked_q_values = tf.where(act_llr > tf.math.log(act_dist_thresh_ph), gen_act_logits,
-                         tf.broadcast_to(tf.constant(-np.inf), shape=gen_act_logits.shape))
-    deterministic_actions = tf.argmax(masked_q_values, axis=1)
+    batch_size = tf.shape(policy.obs_ph)[0]
+    n_actions = ac_space.nvec if isinstance(ac_space, MultiDiscrete) else ac_space.n
+    random_actions = tf.random_uniform(tf.stack([batch_size]), minval=0, maxval=n_actions, dtype=tf.int64)
+    chose_random = tf.random_uniform(tf.stack([batch_size]), minval=0, maxval=1, dtype=tf.float32) < eps
+    stochastic_actions = tf.where(chose_random, random_actions, deterministic_actions)
+    output_actions = tf.cond(stochastic_ph, lambda: stochastic_actions, lambda: deterministic_actions)
+    update_eps_expr = eps.assign(tf.cond(update_eps_ph >= 0, lambda: update_eps_ph, lambda: eps))
+    # _act = tf_util.function(inputs=[policy.obs_ph,act_dist_thresh_ph],outputs=output_actions,
+    #                         givens={act_dist_thresh_ph: 1e-7})
 
-    # batch_size = tf.shape(policy.obs_ph)[0]
-    # n_actions = ac_space.nvec if isinstance(ac_space, MultiDiscrete) else ac_space.n
-    # random_actions = tf.random_uniform(tf.stack([batch_size]), minval=0, maxval=n_actions, dtype=tf.int64)
-    # chose_random = tf.random_uniform(tf.stack([batch_size]), minval=0, maxval=1, dtype=tf.float32) < eps
-    # stochastic_actions = tf.where(chose_random, random_actions, deterministic_actions)
-    # output_actions = tf.cond(stochastic_ph, lambda: stochastic_actions, lambda: deterministic_actions)
+    _act = tf_util.function(inputs=[policy.obs_ph, stochastic_ph, update_eps_ph],
+                            outputs=output_actions,
+                            givens={update_eps_ph: -1.0, stochastic_ph: True},
+                            updates=[update_eps_expr])
 
-    output_actions = deterministic_actions
-    _act = tf_util.function(inputs=[policy.obs_ph,act_dist_thresh_ph],outputs=output_actions,
-                            givens={act_dist_thresh_ph: 1e-7})
+    def act(obs, stochastic=True, update_eps=-1):
+        return _act(obs, stochastic, update_eps)
 
-    def act(obs, act_dist_th=1e-7):
-        return _act(obs, act_dist_th)
+
+    # def act(obs, act_dist_th=1e-7):
+    #     return _act(obs, act_dist_th)
 
     return act, obs_phs
 
@@ -201,16 +210,18 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
     """
     n_actions = ac_space.nvec if isinstance(ac_space, MultiDiscrete) else ac_space.n
     with tf.variable_scope("input", reuse=reuse):
+        stochastic_ph = tf.placeholder(tf.bool, (), name="stochastic")
+        update_eps_ph = tf.placeholder(tf.float32, (), name="update_eps")
         act_dist_thresh_ph = tf.placeholder(tf.float32, (), name="act_dist_thresh")
 
     with tf.variable_scope(scope, reuse=reuse):
-
         if param_noise:
             print('Error: DBCQ doesnt yet support parameter noise. aborting')
             raise NotImplementedError
         else:
-            act_f, obs_phs = build_act(q_func, gen_act_policy, ob_space, ac_space, act_dist_thresh_ph, sess)
-
+            # act_f, obs_phs = build_act(q_func, gen_act_policy, ob_space, ac_space, act_dist_thresh_ph, sess)
+            act_f, obs_phs = build_act(q_func, gen_act_policy, ob_space, ac_space, stochastic_ph, update_eps_ph,
+                                       act_dist_thresh_ph, sess)
 
         # q network evaluation
         with tf.variable_scope("step_model", reuse=True, custom_getter=tf_util.outer_scope_getter("step_model")):
@@ -223,6 +234,15 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
         target_q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
                                                scope=tf.get_variable_scope().name + "/target_q_func")
 
+        # target q network evaluation
+        with tf.variable_scope("gen_act_model", reuse=False):
+            gen_act_model = gen_act_policy(sess, ob_space, ac_space, 1, 1, None, reuse=False)
+        gen_act_model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
+                                               scope=tf.get_variable_scope().name + "/gen_act_model")
+
+
+
+
         # compute estimate of best possible value starting from state at t + 1
         if double_q:
             print('Error: DBCQ doesnt support double q learning. aborting')
@@ -234,6 +254,17 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
         rew_t_ph = tf.placeholder(tf.float32, [None], name="reward")
         done_mask_ph = tf.placeholder(tf.float32, [None], name="done")
         importance_weights_ph = tf.placeholder(tf.float32, [None], name="weight")
+
+        # todo: selecting actions subject to distance from gen_act_model:
+        # the q values of gen_act_policy has to be according to the observations. i.e. we feed the observations
+        # and get the gen_act_policy.q_values that represent the likelihood of each possible action in this state
+
+        # gen_act_logits = gen_act_policy.q_values
+        # max_gen_act_logit = tf.reduce_max(gen_act_logits,axis=1,keepdims=True)
+        # act_llr = tf.math.subtract(gen_act_logits,max_gen_act_logit)
+        # masked_q_values = tf.where(act_llr > tf.math.log(act_dist_thresh_ph), gen_act_logits,
+        #                      tf.broadcast_to(tf.constant(-np.inf), shape=gen_act_logits.shape))
+        # deterministic_actions = tf.argmax(masked_q_values, axis=1)
 
         # q scores for actions which we know were selected in the given state.
         q_t_selected = tf.reduce_sum(step_model.q_values * tf.one_hot(act_t_ph, n_actions), axis=1)
@@ -303,6 +334,7 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
     train = tf_util.function(
         inputs=[
             obs_phs[0],
+            gen_act_model.obs_ph,
             act_t_ph,
             rew_t_ph,
             target_policy.obs_ph,

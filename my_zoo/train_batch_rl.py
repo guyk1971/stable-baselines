@@ -4,27 +4,19 @@ train an agent on gym classic control environment.
 Supported environments :
 
 """
-import os
+# import os
 import sys
 import time
 import argparse
 import importlib
-from functools import partial
+# from functools import partial
 from collections import OrderedDict
 import gym
 import numpy as np
-import yaml
 from stable_baselines.common import set_global_seeds
-from stable_baselines.common.vec_env import VecFrameStack, SubprocVecEnv, VecNormalize, DummyVecEnv
-from stable_baselines.common.noise import AdaptiveParamNoiseSpec, NormalActionNoise, OrnsteinUhlenbeckActionNoise
-from stable_baselines.ppo2.ppo2 import constfn  # todo: consider adding it directly to the config class of ppo
-from stable_baselines.dbcq.replay_buffer import ReplayBuffer
+# from stable_baselines.dbcq.replay_buffer import ReplayBuffer
 from stable_baselines.dbcq.expert_dataset import generate_expert_traj
-from stable_baselines.gail import ExpertDataset
 from stable_baselines.dbcq.dbcq import DBCQ
-
-
-import copy
 
 try:
     import mpi4py
@@ -32,18 +24,15 @@ try:
 except ImportError:
     mpi4py = None
 
-from zoo.utils import make_env, ALGOS, linear_schedule, get_latest_run_id, get_wrapper_class, find_saved_model
+from zoo.utils import ALGOS
 from zoo.utils.hyperparams_opt import hyperparam_optimization
-from zoo.utils.noise import LinearNormalActionNoise
 
 from my_zoo.utils.common import *
 from my_zoo.utils.train import create_logger,get_create_env,parse_agent_params
-from my_zoo.hyperparams.default_config import CC_ENVS
+
 
 
 LOGGER_NAME=os.path.splitext(os.path.basename(__file__))[0]
-
-
 
 
 def parse_cmd_line():
@@ -74,8 +63,8 @@ def create_experience_buffer(experiment_params,output_dir):
     :return: experience_buffer that can be consumed (wrapped) by ExpertData
     '''
     exp_agent_params = experiment_params.batch_experience_agent_params.as_dict()
-    if experiment_params.verbose>0:
-        experiment_params.batch_experience_agent_params.verbose = experiment_params.verbose
+    experiment_params.batch_experience_agent_params.verbose = experiment_params.verbose
+    if experiment_params.verbose > 0:
         experiment_params.batch_experience_agent_params.tensorboard_log = output_dir
 
     algo = exp_agent_params['algorithm']
@@ -104,7 +93,6 @@ def create_experience_buffer(experiment_params,output_dir):
         del exp_agent_params['policy']
         model = ALGOS[algo].load(trained_agent, env=env,**exp_agent_params)
         exp_folder = trained_agent[:-4]
-
         if normalize:
             logger.info("Loading saved running average")
             env.load_running_average(exp_folder)
@@ -138,7 +126,8 @@ def create_experience_buffer(experiment_params,output_dir):
     #########################
     # option 2: use generate_expert_data
     experience_buffer = generate_expert_traj(model, save_path=exp_buf_filename, env=env,
-                                             n_timesteps=int(experiment_params.n_timesteps),n_episodes=100,
+                                             n_timesteps=int(experiment_params.batch_expert_n_timesteps),
+                                             n_episodes=experiment_params.batch_expert_n_episodes,
                                              logger=logger)
     logger.info('Saving experience buffer to ' + exp_buf_filename)
     env.close()
@@ -185,7 +174,6 @@ def run_experiment(experiment_params):
 
     # logger.info(experiment_params.as_dict())
     # set the seed for the current worker
-
     experiment_params.agent_params.seed = seed
 
     saved_exp_agent_hparams = None
@@ -216,6 +204,7 @@ def run_experiment(experiment_params):
     ###################
     # make the env for evaluation
     algo = agent_hyperparams['algorithm']
+    # batch mode - the envs are only for evaluation
     n_envs = experiment_params.n_envs
     env = env_make(n_envs,experiment_params.env_params,algo,seed)
 

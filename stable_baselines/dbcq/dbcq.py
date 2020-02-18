@@ -168,7 +168,7 @@ class DBCQ(OffPolicyRLModel):
                 self.sess = tf_util.make_session(num_cpu=self.n_cpu_tf_sess, graph=self.graph)
 
                 optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
-
+                # build the training graph operations
                 self.act, self._train_step, self.update_target, self.step_model = build_train(
                     q_func=partial(self.policy, **self.policy_kwargs),
                     gen_act_policy=self.gen_act_model,
@@ -208,6 +208,8 @@ class DBCQ(OffPolicyRLModel):
 
     def train_gen_act_model(self,val_interval=None):
         # look at how the base model performs the pretraining. you should do the same here.
+        # todo: according to the type of the generative model, set the parameters accordingly
+        # currently we assume the generative model is neural network. need to add support in knn
         if self.gen_act_params is None:
             n_epochs = 50
             lr=1e-3     # learning rate
@@ -320,17 +322,17 @@ class DBCQ(OffPolicyRLModel):
                         if (1 + n_epochs) % 10 == 0:
                             run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                             run_metadata = tf.RunMetadata()
-                            summary, loss = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1,
+                            summary, loss = self._train_step(obses_t, obses_t, actions, rewards, obses_tp1, obses_tp1,
                                                                   dones, weights, sess=self.sess, options=run_options,
                                                                   run_metadata=run_metadata)
                             writer.add_run_metadata(run_metadata, 'step%d' % self.num_timesteps)
                         else:
-                            summary, loss = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1,
+                            summary, loss = self._train_step(obses_t, obses_t, actions, rewards, obses_tp1, obses_tp1,
                                                                   dones, weights, sess=self.sess)
                         writer.add_summary(summary, self.num_timesteps)
                     else:
-                        _, loss = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1, dones, weights,
-                                                        sess=self.sess)
+                        _, loss = self._train_step(obses_t, obses_t, actions, rewards, obses_tp1, obses_tp1, dones,
+                                                   weights,sess=self.sess)
                     it += 1     # iteration count
                 avg_epoch_loss = loss/len(self.dataset.train_loader)
 
