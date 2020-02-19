@@ -378,7 +378,7 @@ class DBCQAgentParams(AgentParams):
         # other default params
         self.gamma = 0.99
         self.batch_size = 32
-        self.double_q = False
+        self.double_q = True
         self.replay_buffer = None
         self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
                                                 # the rest (20%) will be used for Off policy evaluation

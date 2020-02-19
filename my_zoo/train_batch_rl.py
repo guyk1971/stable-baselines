@@ -13,6 +13,7 @@ import importlib
 from collections import OrderedDict
 import gym
 import numpy as np
+import yaml
 from stable_baselines.common import set_global_seeds
 # from stable_baselines.dbcq.replay_buffer import ReplayBuffer
 from stable_baselines.dbcq.expert_dataset import generate_expert_traj
@@ -244,6 +245,16 @@ def run_experiment(experiment_params):
     save_path = output_dir
     params_path = "{}/{}".format(save_path, 'model_params')
     os.makedirs(params_path, exist_ok=True)
+
+    if rank == 0:
+        logger.info("Saving to {}".format(save_path))
+        model.save(params_path)
+        # Save hyperparams
+        # note that in order to save as yaml I need to avoid using classes in the definition.
+        # e.g. CustomDQNPolicy will not work. I need to put a string and parse it later
+        with open(os.path.join(output_dir, 'config.yml'), 'w') as f:
+            yaml.dump(saved_hyperparams, f)
+
 
     return
 

@@ -59,7 +59,6 @@ class DBCQ(OffPolicyRLModel):
     :param train_freq: (int) update the model every `train_freq` epochs.
     :param val_freq: (int) perform validation every `val_freq` epochs. set to 0 to avoid validation.
     :param batch_size: (int) size of a batched sampled from replay buffer for training
-    :param double_q: (bool) Whether to enable Double-Q learning or not.
     :param learning_starts: (int) how many steps of the model to collect transitions for before learning starts
     :param target_network_update_freq: (int) update the target network every `target_network_update_freq` steps.
     :param prioritized_replay: (bool) if True prioritized replay buffer will be used.
@@ -83,14 +82,13 @@ class DBCQ(OffPolicyRLModel):
     """
     def __init__(self, policy, env, replay_buffer, gen_act_model=None ,gamma=0.99, learning_rate=5e-4,
                  exploration_fraction=0.1, exploration_final_eps=0.02, exploration_initial_eps=1.0, train_freq=1,
-                 val_freq=0, batch_size=32, double_q=True,learning_starts=1000, target_network_update_freq=500,
+                 val_freq=0, batch_size=32, learning_starts=1000, target_network_update_freq=500,
                  prioritized_replay=False, prioritized_replay_alpha=0.6, prioritized_replay_beta0=0.4,
                  buffer_train_fraction=0.8, gen_act_params = None,
                  prioritized_replay_beta_iters=None,prioritized_replay_eps=1e-6, param_noise=False,
                  n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
                  _init_setup_model=True, policy_kwargs=None, full_tensorboard_log=False, seed=None):
 
-        # TODO: replay_buffer refactoring
         super(DBCQ, self).__init__(policy=policy, env=env, replay_buffer=replay_buffer, verbose=verbose,
                                    policy_base=DQNPolicy, requires_vec_env=False, policy_kwargs=policy_kwargs,
                                    seed=seed, n_cpu_tf_sess=n_cpu_tf_sess)
@@ -112,12 +110,14 @@ class DBCQ(OffPolicyRLModel):
         self.buffer_size = self.replay_buffer.buffer_size
         self.learning_rate = learning_rate
         self.gamma = gamma
-        self.tensorboard_log = tensorboard_log
-        self.full_tensorboard_log = full_tensorboard_log
-        self.double_q = double_q
         self.gen_act_model = gen_act_model
         self.buffer_train_fraction = buffer_train_fraction
         self.gen_act_params = gen_act_params
+
+
+
+        self.tensorboard_log = tensorboard_log
+        self.full_tensorboard_log = full_tensorboard_log
         self.graph = None
         self.sess = None
         self._train_step = None
@@ -180,10 +180,10 @@ class DBCQ(OffPolicyRLModel):
                     param_noise=self.param_noise,
                     sess=self.sess,
                     full_tensorboard_log=self.full_tensorboard_log,
-                    double_q=self.double_q
                 )
                 self.proba_step = self.step_model.proba_step
                 self.params = tf_util.get_trainable_vars("dbcq")
+                self.gen_act_trainables = tf_util.get_globals_vars("dbcq/gen_act_model")
 
                 # Initialize the parameters and copy them to the target network.
                 tf_util.initialize(self.sess)
@@ -241,7 +241,7 @@ class DBCQ(OffPolicyRLModel):
                 )
                 loss = tf.reduce_mean(loss)
                 optimizer = tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-8)
-                optim_op = optimizer.minimize(loss, var_list=self.params)
+                optim_op = optimizer.minimize(loss, var_list=self.gen_act_trainables)
 
             self.sess.run(tf.global_variables_initializer())
 
@@ -285,7 +285,6 @@ class DBCQ(OffPolicyRLModel):
 
     def learn(self, total_timesteps, callback=None, log_interval=100, tb_log_name="DBCQ",
               reset_num_timesteps=True, replay_wrapper=None):
-        # todo: build the learning procedure here... (look at learn_old an the base model's pretrain)
         new_tb_log = self._init_num_timesteps(reset_num_timesteps)
 
         with SetVerbosity(self.verbose), TensorboardWriter(self.graph, self.tensorboard_log, tb_log_name, new_tb_log) \
@@ -303,8 +302,8 @@ class DBCQ(OffPolicyRLModel):
                     if callback(locals(), globals()) is False:
                         break
                 # Full pass on the training set
-                it = 0
-                for _ in range(len(self.dataset.train_loader)):
+
+                for it in range(len(self.dataset.train_loader)):
                     # expert_obs, expert_actions = self.dataset.get_next_batch('train')
                     # feed_dict = {
                     #     obs_ph: expert_obs,
@@ -322,18 +321,17 @@ class DBCQ(OffPolicyRLModel):
                         if (1 + n_epochs) % 10 == 0:
                             run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                             run_metadata = tf.RunMetadata()
-                            summary, loss = self._train_step(obses_t, obses_t, actions, rewards, obses_tp1, obses_tp1,
-                                                                  dones, weights, sess=self.sess, options=run_options,
-                                                                  run_metadata=run_metadata)
+                            summary, loss = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1, obses_tp1,
+                                                             dones, weights, sess=self.sess, options=run_options,
+                                                             run_metadata=run_metadata)
                             writer.add_run_metadata(run_metadata, 'step%d' % self.num_timesteps)
                         else:
-                            summary, loss = self._train_step(obses_t, obses_t, actions, rewards, obses_tp1, obses_tp1,
-                                                                  dones, weights, sess=self.sess)
+                            summary, loss = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1, obses_tp1,
+                                                             dones, weights, sess=self.sess)
                         writer.add_summary(summary, self.num_timesteps)
                     else:
-                        _, loss = self._train_step(obses_t, obses_t, actions, rewards, obses_tp1, obses_tp1, dones,
-                                                   weights,sess=self.sess)
-                    it += 1     # iteration count
+                        _, loss = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1, obses_tp1,
+                                                   dones, weights,sess=self.sess)
                 avg_epoch_loss = loss/len(self.dataset.train_loader)
 
                 if n_epochs % self.target_network_update_freq == 0:
@@ -391,11 +389,12 @@ class DBCQ(OffPolicyRLModel):
 
     def save(self, save_path, cloudpickle=False):
         # params
+        # todo: update parameters
         data = {
-            "double_q": self.double_q,
             "param_noise": self.param_noise,
             "learning_starts": self.learning_starts,
             "train_freq": self.train_freq,
+            "val_freq": self.val_freq,
             "prioritized_replay": self.prioritized_replay,
             "prioritized_replay_eps": self.prioritized_replay_eps,
             "batch_size": self.batch_size,
@@ -407,6 +406,10 @@ class DBCQ(OffPolicyRLModel):
             "exploration_fraction": self.exploration_fraction,
             "learning_rate": self.learning_rate,
             "gamma": self.gamma,
+            "gen_act_model": self.gen_act_model,
+            "gen_act_params": self.gen_act_params,
+            "buffer_train_fraction": self.buffer_train_fraction,
+            # variables saved by parent class
             "verbose": self.verbose,
             "observation_space": self.observation_space,
             "action_space": self.action_space,
