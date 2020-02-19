@@ -15,7 +15,6 @@ import gym
 import numpy as np
 import yaml
 from stable_baselines.common import set_global_seeds
-# from stable_baselines.dbcq.replay_buffer import ReplayBuffer
 from stable_baselines.dbcq.expert_dataset import generate_expert_traj
 from stable_baselines.dbcq.dbcq import DBCQ
 
@@ -26,7 +25,6 @@ except ImportError:
     mpi4py = None
 
 from zoo.utils import ALGOS
-from zoo.utils.hyperparams_opt import hyperparam_optimization
 
 from my_zoo.utils.common import *
 from my_zoo.utils.train import create_logger,get_create_env,parse_agent_params
@@ -63,55 +61,59 @@ def create_experience_buffer(experiment_params,output_dir):
     :param output_dir: location of where to save the experience buffer
     :return: experience_buffer that can be consumed (wrapped) by ExpertData
     '''
-    exp_agent_params = experiment_params.batch_experience_agent_params.as_dict()
-    experiment_params.batch_experience_agent_params.verbose = experiment_params.verbose
+    exp_agent_params = experiment_params.batch_expert_params.as_dict()
+    experiment_params.batch_expert_params.verbose = experiment_params.verbose
     if experiment_params.verbose > 0:
-        experiment_params.batch_experience_agent_params.tensorboard_log = output_dir
+        experiment_params.batch_expert_params.tensorboard_log = output_dir
 
     algo = exp_agent_params['algorithm']
-    seed = experiment_params.batch_experience_agent_params.seed
+    seed = experiment_params.batch_expert_params.seed
     ###################
     # make the env
     n_envs = experiment_params.n_envs
     env = env_make(n_envs,experiment_params.env_params,algo,seed)
     #####################
     # create the agent
-    if ALGOS[algo] is None:
-        raise ValueError('{} requires MPI to be installed'.format(algo))
 
-    n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
-    parse_agent_params(exp_agent_params,n_actions,experiment_params.n_timesteps,logger)
+    if algo=='random':      # if we simply need a random agent, we're creating a callable object for model
+        def model(obs,gymenv=env):
+            assert isinstance(gymenv,gym.Env), "random model assumes gym environment (uses its 'sample' method)"
+            action = gymenv.action_space.sample()
+            return action
+    else:
+        if ALGOS[algo] is None:
+            raise ValueError('{} requires MPI to be installed'.format(algo))
 
-    normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
+        n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
+        parse_agent_params(exp_agent_params,n_actions,experiment_params.n_timesteps,logger)
 
-    trained_agent = experiment_params.batch_experience_trained_agent
-    if trained_agent:
-        valid_extension = trained_agent.endswith('.pkl') or trained_agent.endswith('.zip')
-        assert valid_extension and os.path.isfile(trained_agent), \
-            "The trained_agent must be a valid path to a .zip/.pkl file"
-        logger.info("loading pretrained agent to continue training")
-        # if policy is defined, delete as it will be loaded with the trained agent
-        del exp_agent_params['policy']
-        model = ALGOS[algo].load(trained_agent, env=env,**exp_agent_params)
-        exp_folder = trained_agent[:-4]
-        if normalize:
-            logger.info("Loading saved running average")
-            env.load_running_average(exp_folder)
+        normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
 
-    else:       # create a model from scratch
-        model = ALGOS[algo](env=env, **exp_agent_params)
+        trained_agent = experiment_params.batch_experience_trained_agent
+        if trained_agent:
+            valid_extension = trained_agent.endswith('.pkl') or trained_agent.endswith('.zip')
+            assert valid_extension and os.path.isfile(trained_agent), \
+                "The trained_agent must be a valid path to a .zip/.pkl file"
+            logger.info("loading pretrained agent to continue training")
+            # if policy is defined, delete as it will be loaded with the trained agent
+            del exp_agent_params['policy']
+            model = ALGOS[algo].load(trained_agent, env=env,**exp_agent_params)
+            exp_folder = trained_agent[:-4]
+            if normalize:
+                logger.info("Loading saved running average")
+                env.load_running_average(exp_folder)
+
+        else:       # create a model from scratch
+            model = ALGOS[algo](env=env, **exp_agent_params)
 
     # prepare the path to save the expert experience buffer
-    exp_agent_algo = experiment_params.batch_experience_agent_params.algorithm
+    exp_agent_algo = experiment_params.batch_expert_params.algorithm
     exp_buf_filename = 'er_'+experiment_params.env_params.env_id+'_'+exp_agent_algo
     exp_buf_filename = os.path.join(output_dir,exp_buf_filename)
     explore_frac=exp_agent_params['exploration_fraction']
     explore_final_eps = exp_agent_params['exploration_final_eps']
     logger.info('start generating expert data with exploration fraction and final eps: ({0},{1})'.format(explore_frac,
                                                                                                    explore_final_eps))
-    if explore_frac==1.0 and explore_final_eps==1.0:
-        logger.info("Using pure random uniform agent")
-
     # at this point, we have 2 options:
     #########################
     # option 1: create it manually
@@ -143,7 +145,7 @@ def load_or_create_experience_buffer(experiment_params,output_dir):
         experience_buffer = np.load(experiment_params.batch_experience_buffer,allow_pickle=True)
         return experience_buffer
     # if we got to this line, we need to generate an experience buffer
-    logger.info('Generating experience buffer with ' + experiment_params.batch_experience_agent_params.algorithm)
+    logger.info('Generating experience buffer with ' + experiment_params.batch_expert_params.algorithm)
     experience_buffer = create_experience_buffer(experiment_params,output_dir)
     return experience_buffer
 

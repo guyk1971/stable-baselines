@@ -13,22 +13,7 @@ from stable_baselines.dbcq.replay_buffer import ReplayBuffer, PrioritizedReplayB
 from stable_baselines.dbcq.policies import DQNPolicy
 from stable_baselines.a2c.utils import total_episode_reward_logger
 from stable_baselines.gail import ExpertDataset
-
-
-def online_policy_eval(policy, env, eval_episodes=100):
-    avg_reward = 0.
-    for _ in range(eval_episodes):
-        obs = env.reset()
-        done = False
-        while not done:
-            action = policy.select_action(np.array(obs))
-            obs, reward, done, _ = env.step(action)
-            avg_reward += reward
-
-    avg_reward /= eval_episodes
-    # print("Evaluation over {} episodes: {:.1f}".format(eval_episodes, avg_reward))
-    return avg_reward
-
+from stable_baselines.common.evaluation import evaluate_policy as online_policy_eval
 
 
 class DBCQ(OffPolicyRLModel):
@@ -52,22 +37,10 @@ class DBCQ(OffPolicyRLModel):
     :param gamma: (float) discount factor
     :param learning_rate: (float) learning rate for adam optimizer
     :param buffer_size: (int) size of the replay buffer
-    :param exploration_fraction: (float) fraction of entire training period over which the exploration rate is
-            annealed
-    :param exploration_final_eps: (float) final value of random action probability
-    :param exploration_initial_eps: (float) initial value of random action probability
     :param train_freq: (int) update the model every `train_freq` epochs.
     :param val_freq: (int) perform validation every `val_freq` epochs. set to 0 to avoid validation.
     :param batch_size: (int) size of a batched sampled from replay buffer for training
-    :param learning_starts: (int) how many steps of the model to collect transitions for before learning starts
     :param target_network_update_freq: (int) update the target network every `target_network_update_freq` steps.
-    :param prioritized_replay: (bool) if True prioritized replay buffer will be used.
-    :param prioritized_replay_alpha: (float)alpha parameter for prioritized replay buffer.
-        It determines how much prioritization is used, with alpha=0 corresponding to the uniform case.
-    :param prioritized_replay_beta0: (float) initial value of beta for prioritized replay buffer
-    :param prioritized_replay_beta_iters: (int) number of iterations over which beta will be annealed from initial
-            value to 1.0. If set to None equals to max_timesteps.
-    :param prioritized_replay_eps: (float) epsilon to add to the TD errors when updating priorities.
     :param param_noise: (bool) Whether or not to apply noise to the parameters of the policy.
     :param verbose: (int) the verbosity level: 0 none, 1 training information, 2 tensorflow debug
     :param tensorboard_log: (str) the log location for tensorboard (if None, no logging)
@@ -81,11 +54,8 @@ class DBCQ(OffPolicyRLModel):
         If None, the number of cpu of the current machine will be used.
     """
     def __init__(self, policy, env, replay_buffer, gen_act_model=None ,gamma=0.99, learning_rate=5e-4,
-                 exploration_fraction=0.1, exploration_final_eps=0.02, exploration_initial_eps=1.0, train_freq=1,
-                 val_freq=0, batch_size=32, learning_starts=1000, target_network_update_freq=500,
-                 prioritized_replay=False, prioritized_replay_alpha=0.6, prioritized_replay_beta0=0.4,
-                 buffer_train_fraction=0.8, gen_act_params = None,
-                 prioritized_replay_beta_iters=None,prioritized_replay_eps=1e-6, param_noise=False,
+                 train_freq=1,val_freq=0, batch_size=32, target_network_update_freq=500,
+                 buffer_train_fraction=0.8, gen_act_params = None,param_noise=False,
                  n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
                  _init_setup_model=True, policy_kwargs=None, full_tensorboard_log=False, seed=None):
 
@@ -94,19 +64,10 @@ class DBCQ(OffPolicyRLModel):
                                    seed=seed, n_cpu_tf_sess=n_cpu_tf_sess)
 
         self.param_noise = param_noise
-        self.learning_starts = learning_starts
         self.train_freq = train_freq
         self.val_freq = val_freq
-        self.prioritized_replay = prioritized_replay
-        self.prioritized_replay_eps = prioritized_replay_eps
         self.batch_size = batch_size
         self.target_network_update_freq = target_network_update_freq
-        self.prioritized_replay_alpha = prioritized_replay_alpha
-        self.prioritized_replay_beta0 = prioritized_replay_beta0
-        self.prioritized_replay_beta_iters = prioritized_replay_beta_iters
-        self.exploration_final_eps = exploration_final_eps
-        self.exploration_initial_eps = exploration_initial_eps
-        self.exploration_fraction = exploration_fraction
         self.buffer_size = self.replay_buffer.buffer_size
         self.learning_rate = learning_rate
         self.gamma = gamma
@@ -340,7 +301,7 @@ class DBCQ(OffPolicyRLModel):
 
                 if (n_epochs+1) % self.val_freq == 0:
                     if self.env is not None:
-                        mean_reward = online_policy_eval(self.step_model,self.env)
+                        mean_reward,_ = online_policy_eval(self.step_model,self.env)
                         print("Evaluating on env: mean reward={0}".format(mean_reward))
                     else:
                         raise RuntimeError("Off Policy Evaluation is not supported yet")
@@ -392,18 +353,10 @@ class DBCQ(OffPolicyRLModel):
         # todo: update parameters
         data = {
             "param_noise": self.param_noise,
-            "learning_starts": self.learning_starts,
             "train_freq": self.train_freq,
             "val_freq": self.val_freq,
-            "prioritized_replay": self.prioritized_replay,
-            "prioritized_replay_eps": self.prioritized_replay_eps,
             "batch_size": self.batch_size,
             "target_network_update_freq": self.target_network_update_freq,
-            "prioritized_replay_alpha": self.prioritized_replay_alpha,
-            "prioritized_replay_beta0": self.prioritized_replay_beta0,
-            "prioritized_replay_beta_iters": self.prioritized_replay_beta_iters,
-            "exploration_final_eps": self.exploration_final_eps,
-            "exploration_fraction": self.exploration_fraction,
             "learning_rate": self.learning_rate,
             "gamma": self.gamma,
             "gen_act_model": self.gen_act_model,

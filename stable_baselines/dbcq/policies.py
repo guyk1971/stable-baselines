@@ -4,67 +4,7 @@ import numpy as np
 from gym.spaces import Discrete
 
 from stable_baselines.common.policies import BasePolicy, nature_cnn, register_policy
-
-
-class DQNPolicy(BasePolicy):
-    """
-    Policy object that implements a DQN policy
-
-    :param sess: (TensorFlow session) The current TensorFlow session
-    :param ob_space: (Gym Space) The observation space of the environment
-    :param ac_space: (Gym Space) The action space of the environment
-    :param n_env: (int) The number of environments to run
-    :param n_steps: (int) The number of steps to run for each environment
-    :param n_batch: (int) The number of batch to run (n_envs * n_steps)
-    :param reuse: (bool) If the policy is reusable or not
-    :param scale: (bool) whether or not to scale the input
-    :param obs_phs: (TensorFlow Tensor, TensorFlow Tensor) a tuple containing an override for observation placeholder
-        and the processed observation placeholder respectively
-    :param dueling: (bool) if true double the output MLP to compute a baseline for action scores
-    """
-
-    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, scale=False,
-                 obs_phs=None, dueling=True):
-        # DQN policies need an override for the obs placeholder, due to the architecture of the code
-        super(DQNPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=reuse, scale=scale,
-                                        obs_phs=obs_phs)
-        assert isinstance(ac_space, Discrete), "Error: the action space for DQN must be of type gym.spaces.Discrete"
-        self.n_actions = ac_space.n
-        self.value_fn = None
-        self.q_values = None
-        self.dueling = dueling
-
-    def _setup_init(self):
-        """
-        Set up action probability
-        """
-        with tf.variable_scope("output", reuse=True):
-            assert self.q_values is not None
-            self.policy_proba = tf.nn.softmax(self.q_values)
-
-    def step(self, obs, state=None, mask=None, deterministic=True):
-        """
-        Returns the q_values for a single step
-
-        :param obs: (np.ndarray float or int) The current observation of the environment
-        :param state: (np.ndarray float) The last states (used in recurrent policies)
-        :param mask: (np.ndarray float) The last masks (used in recurrent policies)
-        :param deterministic: (bool) Whether or not to return deterministic actions.
-        :return: (np.ndarray int, np.ndarray float, np.ndarray float) actions, q_values, states
-        """
-        raise NotImplementedError
-
-    def proba_step(self, obs, state=None, mask=None):
-        """
-        Returns the action probability for a single step
-
-        :param obs: (np.ndarray float or int) The current observation of the environment
-        :param state: (np.ndarray float) The last states (used in recurrent policies)
-        :param mask: (np.ndarray float) The last masks (used in recurrent policies)
-        :return: (np.ndarray float) the action probability
-        """
-        raise NotImplementedError
-
+from stable_baselines.deepq.policies import DQNPolicy
 
 class FeedForwardPolicy(DQNPolicy):
     """
@@ -186,7 +126,7 @@ class CnnPolicy(FeedForwardPolicy):
     """
 
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch,
-                 reuse=False, obs_phs=None, dueling=True, **_kwargs):
+                 reuse=False, obs_phs=None, dueling=False, **_kwargs):
         super(CnnPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
                                         feature_extraction="cnn", obs_phs=obs_phs, dueling=dueling,
                                         layer_norm=False, **_kwargs)
@@ -210,7 +150,7 @@ class LnCnnPolicy(FeedForwardPolicy):
     """
 
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch,
-                 reuse=False, obs_phs=None, dueling=True, **_kwargs):
+                 reuse=False, obs_phs=None, dueling=False, **_kwargs):
         super(LnCnnPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
                                           feature_extraction="cnn", obs_phs=obs_phs, dueling=dueling,
                                           layer_norm=True, **_kwargs)
@@ -234,7 +174,7 @@ class MlpPolicy(FeedForwardPolicy):
     """
 
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch,
-                 reuse=False, obs_phs=None, dueling=True, **_kwargs):
+                 reuse=False, obs_phs=None, dueling=False, **_kwargs):
         super(MlpPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
                                         feature_extraction="mlp", obs_phs=obs_phs, dueling=dueling,
                                         layer_norm=False, **_kwargs)
@@ -258,10 +198,10 @@ class LnMlpPolicy(FeedForwardPolicy):
     """
 
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch,
-                 reuse=False, obs_phs=None, dueling=True, **_kwargs):
+                 reuse=False, obs_phs=None, dueling=False, **_kwargs):
         super(LnMlpPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
                                           feature_extraction="mlp", obs_phs=obs_phs,
-                                          layer_norm=True, dueling=True, **_kwargs)
+                                          layer_norm=True, dueling=dueling, **_kwargs)
 
 
 register_policy("CnnPolicy", CnnPolicy)

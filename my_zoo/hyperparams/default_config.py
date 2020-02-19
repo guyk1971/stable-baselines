@@ -53,6 +53,11 @@ class AgentParams:
     def as_dict(self):
         return vars(self)
 
+class RandomAgentParams(AgentParams):
+    def __init__(self):
+        super(RandomAgentParams, self).__init__()
+        self.algorithm = 'random'
+        return
 
 class DQNAgentParams(AgentParams):
     """
@@ -358,17 +363,8 @@ class DBCQAgentParams(AgentParams):
         self.policy = 'MlpPolicy'    # or 'CnnPolicy' or 'CustomDQNPolicy' - the main policy that we train
         self.buffer_size = 50000
         self.learning_rate = 1e-4
-        self.learning_starts = 1000
         self.target_network_update_freq = 500
         self.train_freq = 1
-        self.exploration_initial_eps = 1.0
-        self.exploration_final_eps = 0.02
-        self.exploration_fraction = 0.1
-        self.prioritized_replay_alpha = 0.6
-        self.prioritized_replay = False
-        self.prioritized_replay_beta0 = 0.4
-        self.prioritized_replay_beta_iters = None
-        self.prioritized_replay_eps = 1e-6
         self.param_noise = False
         self.act_distance_thresh = 0.3          # if gen_act_policy is Neural Net - corresponds to the threshold tau
                                                 # i.e. actions with likelihood ratio larger than threshold will be

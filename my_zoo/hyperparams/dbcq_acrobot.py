@@ -1,4 +1,4 @@
-from my_zoo.hyperparams.default_config import DBCQAgentParams,DQNAgentParams,ExperimentParams, EnvParams
+from my_zoo.hyperparams.default_config import *
 from stable_baselines.deepq import MlpPolicy
 from zoo.utils import CustomDQNPolicy
 
@@ -34,10 +34,12 @@ env_params.env_id = 'acrobot'
 # n_cpu_tf_sess = None
 # policy_kwargs = None
 ##########################################################
-batch_expert_params = DQNAgentParams()
+# batch_expert_params = DQNAgentParams()
+batch_expert_params = RandomAgentParams()
 # for pure random agent behavior, uncomment the below to set the epsilon scheduling accordingly
-batch_expert_params.exploration_fraction=1.0      # explore for the whole timesteps
-batch_expert_params.exploration_final_eps=1.0     # and always (i.e. with prob eps=1.0 ) explore
+# batch_expert_params.exploration_fraction=1.0      # explore for the whole timesteps
+# batch_expert_params.exploration_final_eps=1.0     # and always (i.e. with prob eps=1.0 ) explore
+# batch_expert_params.double_q = False
 
 
 
@@ -69,7 +71,6 @@ agent_params = DBCQAgentParams()
 # here we can change the various parameters - for example, we can change the batch size
 agent_params.policy = CustomDQNPolicy
 agent_params.learning_rate = 1e-3
-agent_params.exploration_final_eps = 0.1
 
 
 
