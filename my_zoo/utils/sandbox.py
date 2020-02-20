@@ -48,7 +48,7 @@ gw_logits=tf.random.uniform(shape=(N,n_a),minval=-10,maxval=10)
 tau=tf.placeholder(tf.float32,shape=())
 gw_max=tf.reduce_max(gw_logits,axis=1,keepdims=True)
 gw_norm=tf.math.subtract(gw_logits,gw_max)
-gw_masked=tf.where(gw_norm>tf.math.log(tau),gw_logits,tf.broadcast_to(tf.constant(-1000.0),shape=gw_logits.shape))
+gw_masked=tf.where(gw_norm>tf.math.log(tau),gw_logits,tf.constant(-np.inf)*tf.ones_like(gw_logits))
 
 S=tf.Session()
 gwl_vals,gwm_vals=S.run([gw_logits,gw_masked],feed_dict={tau:0.3})

@@ -253,13 +253,13 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
         done_mask_ph = tf.placeholder(tf.float32, [None], name="done")
         importance_weights_ph = tf.placeholder(tf.float32, [None], name="weight")
 
-        # the q values of gen_act_policy has to be according to the observations. i.e. we feed the observations
-        # and get the gen_act_policy.q_values that represent the likelihood of each possible action in this state
-        gen_next_act_logits = gen_act_policy.q_values
+        # the q values of gen_act_model has to be according to the observations. i.e. we feed the observations
+        # and get the gen_act_model.q_values that represent the likelihood of each possible action in this state
+        gen_next_act_logits = gen_act_model.q_values
         max_gen_next_act_logit = tf.reduce_max(gen_next_act_logits,axis=1,keepdims=True)
         next_act_llr = tf.math.subtract(gen_next_act_logits,max_gen_next_act_logit)
         masked_double_q_values = tf.where(next_act_llr > tf.math.log(act_dist_thresh_ph), double_q_values,
-                             tf.broadcast_to(tf.constant(-np.inf), shape=double_q_values.shape))
+                                          tf.constant(-np.inf)*tf.ones_like(double_q_values))
         best_next_actions_masked = tf.argmax(masked_double_q_values, axis=1)
         q_tp1_best = tf.reduce_sum(target_policy.q_values * tf.one_hot(best_next_actions_masked, n_actions), axis=1)
         q_tp1_best_masked = (1.0 - done_mask_ph) * q_tp1_best
@@ -328,11 +328,12 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
             target_policy.obs_ph,
             double_obs_ph,
             done_mask_ph,
-            importance_weights_ph
+            importance_weights_ph,
+            act_dist_thresh_ph
         ],
         outputs=[summary, loss],
         updates=[optimize_expr]
     )
     update_target = tf_util.function([], [], updates=[update_target_expr])
 
-    return act_f, train, update_target, step_model, update_gen_model
+    return act_f, train, update_target, step_model, gen_act_model, update_gen_model

@@ -47,20 +47,16 @@ batch_expert_params = RandomAgentParams()
 # Agent Params                                           #
 # Default values:
 # policy = 'MlpPolicy'  # or 'CnnPolicy' or 'CustomDQNPolicy'
-# buffer_size = 50000
 # learning_rate = 1e-4
 # learning_starts = 1000
 # target_network_update_freq = 500
 # train_freq = 1
-# exploration_initial_eps = 1.0
-# exploration_final_eps = 0.02
-# exploration_fraction = 0.1
+# val_freq = 0
 # prioritized_replay_alpha = 0.6
 # prioritized_replay = False
 # param_noise = False
 # gamma = 0.99
 # batch_size = 32
-# double_q = True
 # prioritized_replay_beta0 = 0.4
 # prioritized_replay_beta_iters = None
 # prioritized_replay_eps = 1e-6
@@ -70,12 +66,8 @@ batch_expert_params = RandomAgentParams()
 agent_params = DBCQAgentParams()
 # here we can change the various parameters - for example, we can change the batch size
 agent_params.policy = CustomDQNPolicy
+agent_params.verbose = 1
 agent_params.learning_rate = 1e-3
-
-
-
-
-
 
 ##########################################################
 # Experiment                                             #

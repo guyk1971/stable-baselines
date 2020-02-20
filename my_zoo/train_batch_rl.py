@@ -76,10 +76,15 @@ def create_experience_buffer(experiment_params,output_dir):
     # create the agent
 
     if algo=='random':      # if we simply need a random agent, we're creating a callable object for model
+        try:
+            _ = env.action_space.sample()
+        except:
+            raise NotImplementedError("random model assumes gym environment (uses its 'sample' method)")
         def model(obs,gymenv=env):
-            assert isinstance(gymenv,gym.Env), "random model assumes gym environment (uses its 'sample' method)"
             action = gymenv.action_space.sample()
-            return action
+            return [action]
+        explore_frac = 1.0          # explore throughout the entire buffer
+        explore_final_eps = 1.0     # 100% exploration i.e. pure random
     else:
         if ALGOS[algo] is None:
             raise ValueError('{} requires MPI to be installed'.format(algo))
@@ -88,6 +93,8 @@ def create_experience_buffer(experiment_params,output_dir):
         parse_agent_params(exp_agent_params,n_actions,experiment_params.n_timesteps,logger)
 
         normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
+        explore_frac = exp_agent_params['exploration_fraction']
+        explore_final_eps = exp_agent_params['exploration_final_eps']
 
         trained_agent = experiment_params.batch_experience_trained_agent
         if trained_agent:
@@ -110,8 +117,6 @@ def create_experience_buffer(experiment_params,output_dir):
     exp_agent_algo = experiment_params.batch_expert_params.algorithm
     exp_buf_filename = 'er_'+experiment_params.env_params.env_id+'_'+exp_agent_algo
     exp_buf_filename = os.path.join(output_dir,exp_buf_filename)
-    explore_frac=exp_agent_params['exploration_fraction']
-    explore_final_eps = exp_agent_params['exploration_final_eps']
     logger.info('start generating expert data with exploration fraction and final eps: ({0},{1})'.format(explore_frac,
                                                                                                    explore_final_eps))
     # at this point, we have 2 options:
@@ -132,7 +137,7 @@ def create_experience_buffer(experiment_params,output_dir):
                                              n_timesteps=int(experiment_params.batch_expert_n_timesteps),
                                              n_episodes=experiment_params.batch_expert_n_episodes,
                                              logger=logger)
-    logger.info('Saving experience buffer to ' + exp_buf_filename)
+    logger.info('Saved experience buffer to ' + exp_buf_filename)
     env.close()
     return experience_buffer
 
@@ -201,7 +206,8 @@ def run_experiment(experiment_params):
     # load or create the experience replay buffer
     er_buf = load_or_create_experience_buffer(experiment_params,output_dir)
     # start batch rl training
-    logger.info("Experience buffer is ready with {0} samples".format(er_buf.buffer_size))
+    er_buf_size = len(er_buf['obs'])
+    logger.info("Experience buffer is ready with {0} samples".format(er_buf_size))
     logger.info(title('start batch training',30))
 
     ###################

@@ -361,7 +361,7 @@ class DBCQAgentParams(AgentParams):
         # Default parameters for DQN Agent
         self.algorithm = 'dbcq'
         self.policy = 'MlpPolicy'    # or 'CnnPolicy' or 'CustomDQNPolicy' - the main policy that we train
-        self.buffer_size = 50000
+        # self.buffer_size = 50000
         self.learning_rate = 1e-4
         self.target_network_update_freq = 500
         self.train_freq = 1
@@ -374,12 +374,11 @@ class DBCQAgentParams(AgentParams):
         # other default params
         self.gamma = 0.99
         self.batch_size = 32
-        self.double_q = True
-        self.replay_buffer = None
         self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
                                                 # the rest (20%) will be used for Off policy evaluation
         # parameters of the generative model for actions
-        self.gen_act_model = 'MlpPolicy'  # 'KNN' for K nearest neighbors, or any DQN policy (see above)
+        self.gen_act_model = 'NN'   # 'KNN' for K nearest neighbors, 'NN' for Neural Net
+                                    # if 'NN' the agent will use the same type of policy for the generative model
         self.gen_act_params = {'n_epochs': 50, 'lr':1e-3, 'train_frac':0.7, 'batch_size':64}
         # self.gen_act_params = {'size': 1000}  # knn parameters
         self.n_cpu_tf_sess = None
