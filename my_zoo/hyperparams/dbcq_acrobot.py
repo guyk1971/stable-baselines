@@ -78,8 +78,8 @@ experiment_params.env_params = env_params
 experiment_params.agent_params = agent_params
 experiment_params.batch_expert_params = batch_expert_params
 experiment_params.batch_experience_buffer = None
-experiment_params.batch_expert_n_timesteps = int(1e5)  # n_timesteps to train the expert before starting to rollout
-experiment_params.batch_expert_n_episodes = 100  # number of episodes to rollout into the buffer
+experiment_params.batch_expert_n_timesteps = int(1e5)       # n_timesteps to train the expert before starting to rollout
+experiment_params.batch_expert_steps_to_record = int(5e4)   # number of steps to rollout into the buffer
 experiment_params.name = __name__.split('.')[-1]
 
 

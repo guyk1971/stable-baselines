@@ -11,6 +11,7 @@ from stable_baselines.common.schedules import LinearSchedule
 from stable_baselines.dbcq.build_graph import build_train
 from stable_baselines.deepq.policies import DQNPolicy
 from stable_baselines.gail import ExpertDataset
+from stable_baselines.dbcq.replay_buffer import ExperienceDataset
 from stable_baselines.common.evaluation import evaluate_policy as online_policy_eval
 
 
@@ -162,9 +163,9 @@ class DBCQ(OffPolicyRLModel):
         if self.replay_buffer is None:
             raise ValueError("Error: cannot train the BCQ model without a valid replay buffer"
                              "please set a buffer with set_replay_buffer(self,replay_buffer) method.")
-        # wrap the replay buffer as ExpertDataset
-        self.dataset = ExpertDataset(traj_data=self.replay_buffer,train_fraction=self.buffer_train_fraction,
-                                     batch_size=self.batch_size)
+        # wrap the replay buffer as ExperienceDataset
+        self.dataset = ExperienceDataset(traj_data=self.replay_buffer,train_fraction=self.buffer_train_fraction,
+                                         batch_size=self.batch_size)
 
     def train_gen_act_model(self,val_interval=None):
         # look at how the base model performs the pretraining. you should do the same here.

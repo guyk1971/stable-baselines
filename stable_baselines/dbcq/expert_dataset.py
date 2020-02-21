@@ -113,12 +113,12 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
             reward_sum = 0.0
             ep_idx += 1
 
-    print("finished collecting expert data")
+    print("finished collecting experience data")
     numpy_dict = replay_buffer.record_buffer()
     # Note : the ReplayBuffer can not generally assume it has not circled around thus cant infer accurate episode
     # statistics. since in this context we know these details, we overwrite the corresponding fields:
-    numpy_dict['episode_returns'] = episode_returns
-    numpy_dict['episode_starts'] = episode_starts
+    numpy_dict['episode_returns'] = np.array(episode_returns)
+    numpy_dict['episode_starts'] = np.array(episode_starts)
 
 
     # for key, val in numpy_dict.items():

@@ -15,7 +15,7 @@ import gym
 import numpy as np
 import yaml
 from stable_baselines.common import set_global_seeds
-from stable_baselines.dbcq.expert_dataset import generate_expert_traj
+from stable_baselines.dbcq.expert_dataset import generate_experience_traj
 from stable_baselines.dbcq.dbcq import DBCQ
 
 try:
@@ -133,10 +133,10 @@ def create_experience_buffer(experiment_params,output_dir):
     # # experience_buffer is structured to be wrapped by ExpertData
     #########################
     # option 2: use generate_expert_data
-    experience_buffer = generate_expert_traj(model, save_path=exp_buf_filename, env=env,
-                                             n_timesteps=int(experiment_params.batch_expert_n_timesteps),
-                                             n_episodes=experiment_params.batch_expert_n_episodes,
-                                             logger=logger)
+    experience_buffer = generate_experience_traj(model, save_path=exp_buf_filename, env=env,
+                                                 n_timesteps_train=int(experiment_params.batch_expert_n_timesteps),
+                                                 n_timesteps_record=experiment_params.batch_expert_steps_to_record,
+                                                 logger=logger)
     logger.info('Saved experience buffer to ' + exp_buf_filename)
     env.close()
     return experience_buffer

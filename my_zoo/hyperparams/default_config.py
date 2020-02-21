@@ -444,8 +444,8 @@ class ExperimentParams:
         self.batch_expert_params = None         # can be any AgentParams from above (assuming coherency in obs,act)
         self.batch_experience_buffer = None     # path to experience buffer we'll learn from
                                                 # name template: experience_<env-id>_<agent-id>.npy
-        self.batch_expert_n_timesteps = 1e5     # number of timesteps to train the expert before starting to rollout
-        self.batch_expert_n_episodes = 100      # number of episodes to rollout into the experience buffer
+        self.batch_expert_n_timesteps_train = int(1e5)      # number of timesteps to train the expert before starting to record
+        self.batch_expert_steps_to_record = int(5e4)        # number of episodes to record into the experience buffer
 
         self.online_evaluation = True           # whether to use evaluation environment
         self.offline_evaluation_split = 0.0     # if >0 perform offline evaluation on this fraction of experience
