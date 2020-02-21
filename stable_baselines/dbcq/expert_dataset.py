@@ -114,32 +114,7 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
             ep_idx += 1
 
     print("finished collecting expert data")
-
-    # if isinstance(env.observation_space, spaces.Box):
-    #     observations = np.concatenate(observations).reshape((-1,) + env.observation_space.shape)
-    # elif isinstance(env.observation_space, spaces.Discrete):
-    #     observations = np.array(observations).reshape((-1, 1))
-    # elif record_images:
-    #     observations = np.array(observations)
-    #
-    # if isinstance(env.action_space, spaces.Box):
-    #     actions = np.concatenate(actions).reshape((-1,) + env.action_space.shape)
-    # elif isinstance(env.action_space, spaces.Discrete):
-    #     actions = np.array(actions).reshape((-1, 1))
-    #
-    # rewards = np.array(rewards)
-    # episode_starts = np.array(episode_starts[:-1])
-    #
-    # assert len(observations) == len(actions)
-    # numpy_dict = {
-    #     'actions': actions,
-    #     'obs': observations,
-    #     'rewards': rewards,
-    #     'episode_returns': episode_returns,
-    #     'episode_starts': episode_starts
-    # }  # type: Dict[str, np.ndarray]
-
-    numpy_dict=replay_buffer.record_buffer()
+    numpy_dict = replay_buffer.record_buffer()
     # Note : the ReplayBuffer can not generally assume it has not circled around thus cant infer accurate episode
     # statistics. since in this context we know these details, we overwrite the corresponding fields:
     numpy_dict['episode_returns'] = episode_returns

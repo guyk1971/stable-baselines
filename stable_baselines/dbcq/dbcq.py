@@ -35,7 +35,6 @@ class DBCQ(OffPolicyRLModel):
     :param gamma: (float) discount factor
     :param learning_rate: (float) learning rate for adam optimizer
     :param buffer_size: (int) size of the replay buffer
-    :param train_freq: (int) update the model every `train_freq` epochs.
     :param val_freq: (int) perform validation every `val_freq` epochs. set to 0 to avoid validation.
     :param batch_size: (int) size of a batched sampled from replay buffer for training
     :param target_network_update_freq: (int) update the target network every `target_network_update_freq` steps.
@@ -52,7 +51,7 @@ class DBCQ(OffPolicyRLModel):
         If None, the number of cpu of the current machine will be used.
     """
     def __init__(self, policy, env, replay_buffer, gen_act_model=None ,gamma=0.99, learning_rate=5e-4,
-                 train_freq=1,val_freq=0, batch_size=32, target_network_update_freq=500,
+                 val_freq=0, batch_size=32, target_network_update_freq=500,
                  buffer_train_fraction=0.8, gen_act_params = None,param_noise=False, act_distance_thresh=0.3,
                  n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
                  _init_setup_model=True, policy_kwargs=None, full_tensorboard_log=False, seed=None):
@@ -62,7 +61,6 @@ class DBCQ(OffPolicyRLModel):
                                    seed=seed, n_cpu_tf_sess=n_cpu_tf_sess)
 
         self.param_noise = param_noise
-        self.train_freq = train_freq
         self.val_freq = val_freq
         self.batch_size = batch_size
         self.target_network_update_freq = target_network_update_freq
@@ -254,23 +252,24 @@ class DBCQ(OffPolicyRLModel):
             print('training the generative model')
             self.train_gen_act_model()
             print('finished training the generative model')
-            # n_epochs = np.ceil(total_timesteps / self.replay_buffer.buffer_size).astype(int)
-            n_epochs = total_timesteps
-            for ep in range(n_epochs):
+            iter_cnt=0        # iterations counter
+            ts=0
+            epoch = 0   # epochs counter
+            n_minibatches = len(self.dataset.train_loader)
+            while ts < total_timesteps:
                 if callback is not None:
                     # Only stop training if return value is False, not when it is None. This is for backwards
                     # compatibility with callbacks that have no return statement.
                     if callback(locals(), globals()) is False:
                         break
                 # Full pass on the training set
-                for it in range(len(self.dataset.train_loader)):
+                for _ in range(n_minibatches):
                     obses_t, actions, rewards, obses_tp1, dones = self.dataset.get_next_batch('train')
                     weights, batch_idxes = np.ones_like(rewards), None
-
                     if writer is not None:
                         # run loss backprop with summary, but once every 10 epochs save the metadata
                         # (memory, compute time, ...)
-                        if (1 + ep) % 10 == 0:
+                        if (1 + epoch) % 10 == 0:
                             run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                             run_metadata = tf.RunMetadata()
                             summary, loss = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1, obses_tp1,
@@ -284,13 +283,18 @@ class DBCQ(OffPolicyRLModel):
                     else:
                         _, loss = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1, obses_tp1,
                                                    dones, weights, self.act_distance_th, sess=self.sess)
+                    # update counters
+                    self.num_timesteps += len(obses_t)
+                    iter_cnt+=1
+                    ts += len(obses_t)
+                epoch += 1     # inc
                 # finished going through the data. summarize the epoch:
-                avg_epoch_loss = loss/len(self.dataset.train_loader)
-                if ep % self.target_network_update_freq == 0:
+                avg_epoch_loss = loss/n_minibatches
+                if epoch % self.target_network_update_freq == 0:
                     # Update target network periodically.
                     self.update_target(sess=self.sess)
 
-                if self.val_freq>0 and ((ep+1) % self.val_freq) == 0:
+                if self.val_freq>0 and ((epoch+1) % self.val_freq) == 0:
                     if self.env is not None:
                         mean_reward,_ = online_policy_eval(self.step_model,self.env)
                         print("Evaluating on env: mean reward={0}".format(mean_reward))
@@ -298,7 +302,7 @@ class DBCQ(OffPolicyRLModel):
                         raise RuntimeError("Off Policy Evaluation is not supported yet")
 
                 if self.verbose >= 1 and log_interval is not None:
-                    logger.record_tabular("epoch", ep)
+                    logger.record_tabular("epoch", epoch)
                     logger.record_tabular("epoch_loss", avg_epoch_loss)
                     logger.record_tabular("mean 100 episode reward", mean_reward)
                     logger.dump_tabular()
@@ -350,7 +354,6 @@ class DBCQ(OffPolicyRLModel):
         # params
         data = {
             "param_noise": self.param_noise,
-            "train_freq": self.train_freq,
             "val_freq": self.val_freq,
             "batch_size": self.batch_size,
             "target_network_update_freq": self.target_network_update_freq,

@@ -262,8 +262,6 @@ def run_experiment(experiment_params):
         # e.g. CustomDQNPolicy will not work. I need to put a string and parse it later
         with open(os.path.join(output_dir, 'config.yml'), 'w') as f:
             yaml.dump(saved_hyperparams, f)
-
-
     return
 
 

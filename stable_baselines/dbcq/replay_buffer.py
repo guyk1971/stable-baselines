@@ -127,6 +127,8 @@ class ReplayBuffer(object):
             'actions': actions,
             'obs': obses_t,
             'rewards': rewards,
+            'obs_tp1': obses_tp1,
+            'dones': dones,
             'episode_returns': episode_returns,
             'episode_starts': episode_starts
         }
@@ -302,7 +304,9 @@ class ExperienceDataset(object):
 
         observations = traj_data['obs'][:traj_limit_idx]
         actions = traj_data['actions'][:traj_limit_idx]
-
+        observations_tp1 = traj_data['obs_tp1'][:traj_limit_idx]
+        rewards = traj_data['rewards'][:traj_limit_idx]
+        dones = traj_data['dones'][:traj_limit_idx]
 
         # obs, actions: shape (N * L, ) + S
         # where N = # episodes, L = episode length
@@ -325,6 +329,10 @@ class ExperienceDataset(object):
 
         self.observations = observations
         self.actions = actions
+        self.observations_tp1 = observations_tp1
+        self.rewards = rewards
+        self.dones = dones
+
 
         self.returns = traj_data['episode_returns'][:traj_limit_idx]
         self.avg_ret = sum(self.returns) / len(self.returns)
@@ -339,26 +347,29 @@ class ExperienceDataset(object):
         self.sequential_preprocessing = sequential_preprocessing
 
         self.dataloader = None
-        self.train_loader = DataLoader(train_indices, self.observations, self.actions, batch_size,
-                                       shuffle=self.randomize, start_process=False,
-                                       sequential=sequential_preprocessing)
-        self.val_loader = DataLoader(val_indices, self.observations, self.actions, batch_size,
-                                     shuffle=self.randomize, start_process=False,
-                                     sequential=sequential_preprocessing)
+        self.train_loader = ExperienceDataLoader(train_indices, self.observations, self.actions, self.rewards,
+                                                 self.observations_tp1, self.dones,
+                                                 batch_size,shuffle=self.randomize, start_process=False,
+                                                 sequential=sequential_preprocessing)
+        self.val_loader = ExperienceDataLoader(val_indices, self.observations, self.actions, self.rewards,
+                                               self.observations_tp1, self.dones,
+                                               batch_size,shuffle=self.randomize, start_process=False,
+                                               sequential=sequential_preprocessing)
 
         if self.verbose >= 1:
             self.log_info()
 
     def init_dataloader(self, batch_size):
         """
-        Initialize the dataloader used by GAIL.
+        Initialize the dataloader
 
         :param batch_size: (int)
         """
         indices = np.random.permutation(len(self.observations)).astype(np.int64)
-        self.dataloader = DataLoader(indices, self.observations, self.actions, batch_size,
-                                     shuffle=self.randomize, start_process=False,
-                                     sequential=self.sequential_preprocessing)
+        self.dataloader = ExperienceDataLoader(indices, self.observations, self.actions, self.rewards,
+                                               self.observations_tp1, self.dones,
+                                               batch_size, shuffle=self.randomize, start_process=False,
+                                               sequential=self.sequential_preprocessing)
 
     def __del__(self):
         del self.dataloader, self.train_loader, self.val_loader
@@ -410,7 +421,7 @@ class ExperienceDataset(object):
         plt.show()
 
 
-class DataLoader(object):
+class ExperienceDataLoader(object):
     """
     A custom dataloader to preprocessing observations (including images)
     and feed them to the network.
@@ -419,9 +430,14 @@ class DataLoader(object):
     (MIT licence)
     Authors: Antonin Raffin, René Traoré, Ashley Hill
 
-    :param indices: ([int]) list of observations indices
+    :param indices: ([int]) list of transitions indices (the transitions are (obs,act,rew,obs_tp1,done))
+    The following defines the transitions:
     :param observations: (np.ndarray) observations or images path
     :param actions: (np.ndarray) actions
+    :param obervations_tp1: (np.ndarray) observations of time t+1
+    :param rewards: (np.ndarray) rewards at time t
+    :param dones: (np.ndarray) dones
+
     :param batch_size: (int) Number of samples per minibatch
     :param n_workers: (int) number of preprocessing worker (for loading the images)
     :param infinite_loop: (bool) whether to have an iterator that can be reset
@@ -436,10 +452,10 @@ class DataLoader(object):
         lesser than the batch_size)
     """
 
-    def __init__(self, indices, observations, actions, batch_size, n_workers=1,
-                 infinite_loop=True, max_queue_len=1, shuffle=False,
+    def __init__(self, indices, observations, actions, rewards, observations_tp1, dones,
+                 batch_size, n_workers=1, infinite_loop=True, max_queue_len=1, shuffle=False,
                  start_process=True, backend='threading', sequential=False, partial_minibatch=True):
-        super(DataLoader, self).__init__()
+        super(ExperienceDataLoader, self).__init__()
         self.n_workers = n_workers
         self.infinite_loop = infinite_loop
         self.indices = indices
@@ -450,12 +466,18 @@ class DataLoader(object):
         if partial_minibatch and len(indices) / batch_size > 0:
             self.n_minibatches += 1
         self.batch_size = batch_size
+        # the following defines the transition
         self.observations = observations
         self.actions = actions
+        self.rewards = rewards
+        self.observations_tp1 = observations_tp1
+        self.dones = dones
+
         self.shuffle = shuffle
         self.queue = Queue(max_queue_len)
         self.process = None
-        self.load_images = isinstance(observations[0], str)
+        # self.load_images = isinstance(observations[0], str)
+        self.load_images = False        # support in handling images is blocked
         self.backend = backend
         self.sequential = sequential
         self.start_idx = 0
@@ -500,8 +522,13 @@ class DataLoader(object):
                                  axis=0)
 
         actions = self.actions[self._minibatch_indices]
+        rewards = self.rewards[self._minibatch_indices]
+        obs_tp1 = self.observations_tp1[self._minibatch_indices]
+        dones = self.dones[self._minibatch_indices]
+
         self.start_idx += self.batch_size
-        return obs, actions
+        return obs, actions, rewards, obs_tp1, dones
+
 
     def _run(self):
         start = True
@@ -529,8 +556,11 @@ class DataLoader(object):
                         obs = np.concatenate(obs, axis=0)
 
                     actions = self.actions[self._minibatch_indices]
+                    rewards = self.rewards[self._minibatch_indices]
+                    obses_tp1 = self.observations_tp1[self._minibatch_indices]
+                    dones = self.dones[self._minibatch_indices]
 
-                    self.queue.put((obs, actions))
+                    self.queue.put((obs, actions, rewards, obses_tp1, dones))
 
                     # Free memory
                     del obs

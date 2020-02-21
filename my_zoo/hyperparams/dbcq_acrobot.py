@@ -73,12 +73,12 @@ agent_params.learning_rate = 1e-3
 # Experiment                                             #
 ##########################################################
 experiment_params = ExperimentParams()
-experiment_params.n_timesteps = 200     # its a batch agent so n_timesteps means n_epochs
+experiment_params.n_timesteps = int(1e5)
 experiment_params.env_params = env_params
 experiment_params.agent_params = agent_params
 experiment_params.batch_expert_params = batch_expert_params
 experiment_params.batch_experience_buffer = None
-experiment_params.batch_expert_n_timesteps = 1e5  # number of timesteps to train the expert before starting to rollout
+experiment_params.batch_expert_n_timesteps = int(1e5)  # n_timesteps to train the expert before starting to rollout
 experiment_params.batch_expert_n_episodes = 100  # number of episodes to rollout into the buffer
 experiment_params.name = __name__.split('.')[-1]
 
