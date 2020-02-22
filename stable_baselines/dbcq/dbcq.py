@@ -193,9 +193,6 @@ class DBCQ(OffPolicyRLModel):
         with self.graph.as_default():
             with tf.variable_scope('gen_act_train'):
                 obs_ph, actions_ph, actions_logits_ph = self._get_gen_act_placeholders()
-                # actions_ph has a shape if (n_batch,), we reshape it to (n_batch, 1)
-                # so no additional changes is needed in the dataloader
-                actions_ph = tf.expand_dims(actions_ph, axis=1)
                 one_hot_actions = tf.one_hot(actions_ph, self.action_space.n)
                 loss = tf.nn.softmax_cross_entropy_with_logits_v2(
                     logits=actions_logits_ph,
@@ -297,7 +294,7 @@ class DBCQ(OffPolicyRLModel):
 
                 if self.val_freq>0 and ((epoch+1) % self.val_freq) == 0:
                     if self.env is not None:
-                        mean_reward,_ = online_policy_eval(self.step_model,self.env)
+                        mean_reward,_ = online_policy_eval(self,self.env)
                         print("Evaluating on env: mean reward={0}".format(mean_reward))
                     else:
                         raise RuntimeError("Off Policy Evaluation is not supported yet")
@@ -360,7 +357,7 @@ class DBCQ(OffPolicyRLModel):
             "target_network_update_freq": self.target_network_update_freq,
             "learning_rate": self.learning_rate,
             "gamma": self.gamma,
-            "gen_act_model": self.gen_act_model,
+            # "gen_act_model": self.gen_act_model,      # todo: uncommenting this line cause error. check it.
             "gen_act_params": self.gen_act_params,
             "buffer_train_fraction": self.buffer_train_fraction,
             # variables saved by parent class
@@ -376,5 +373,7 @@ class DBCQ(OffPolicyRLModel):
         }
 
         params_to_save = self.get_parameters()
+        # params_to_save = None
+        # data = None
 
         self._save_to_file(save_path, data=data, params=params_to_save, cloudpickle=cloudpickle)

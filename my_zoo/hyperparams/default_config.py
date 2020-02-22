@@ -43,7 +43,7 @@ class AgentParams:
     def __init__(self):
 
         # these are parameters that should be derived from the experiment params
-        self.verbose = 0
+        self.verbose = 1
         self.tensorboard_log = None
         self._init_setup_model = True
         self.full_tensorboard_log = False

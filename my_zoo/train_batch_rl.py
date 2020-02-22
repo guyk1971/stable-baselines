@@ -82,7 +82,7 @@ def create_experience_buffer(experiment_params,output_dir):
             raise NotImplementedError("random model assumes gym environment (uses its 'sample' method)")
         def model(obs,gymenv=env):
             action = gymenv.action_space.sample()
-            return [action]
+            return action
         explore_frac = 1.0          # explore throughout the entire buffer
         explore_final_eps = 1.0     # 100% exploration i.e. pure random
     else:
