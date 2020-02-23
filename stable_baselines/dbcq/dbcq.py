@@ -165,7 +165,7 @@ class DBCQ(OffPolicyRLModel):
                              "please set a buffer with set_replay_buffer(self,replay_buffer) method.")
         # wrap the replay buffer as ExperienceDataset
         self.dataset = ExperienceDataset(traj_data=self.replay_buffer,train_fraction=self.buffer_train_fraction,
-                                         batch_size=self.batch_size)
+                                         batch_size=self.batch_size,sequential_preprocessing=True)
 
     def train_gen_act_model(self,val_interval=None):
         # look at how the base model performs the pretraining. you should do the same here.
@@ -189,7 +189,8 @@ class DBCQ(OffPolicyRLModel):
                 val_interval = 1
             else:
                 val_interval = int(n_epochs / 10)
-        dataset = ExpertDataset(traj_data=self.replay_buffer,train_fraction=train_frac,batch_size=batch_size)
+        dataset = ExpertDataset(traj_data=self.replay_buffer,train_fraction=train_frac,batch_size=batch_size,
+                                sequential_preprocessing=True)
         with self.graph.as_default():
             with tf.variable_scope('gen_act_train'):
                 obs_ph, actions_ph, actions_logits_ph = self._get_gen_act_placeholders()
