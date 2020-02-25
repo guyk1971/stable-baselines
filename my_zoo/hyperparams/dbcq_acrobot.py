@@ -1,6 +1,6 @@
 from my_zoo.hyperparams.default_config import *
+# from zoo.utils import CustomDQNPolicy
 from stable_baselines.deepq import MlpPolicy
-from zoo.utils import CustomDQNPolicy
 
 ##########################################################
 # Env                                                    #
@@ -10,8 +10,8 @@ env_params.env_id = 'acrobot'
 
 
 ##########################################################
-# Batch Experience Agent                                 #
-# Default values:
+# Batch Experience-Generating Agent                                 #
+# Default values for DQNAgentParams:
 # policy = 'MlpPolicy'
 # buffer_size = 50000
 # learning_rate = 1e-4
@@ -34,12 +34,15 @@ env_params.env_id = 'acrobot'
 # n_cpu_tf_sess = None
 # policy_kwargs = None
 ##########################################################
-# batch_expert_params = DQNAgentParams()
 batch_expert_params = RandomAgentParams()
 # for pure random agent behavior, uncomment the below to set the epsilon scheduling accordingly
+# batch_expert_params = DQNAgentParams()
 # batch_expert_params.exploration_fraction=1.0      # explore for the whole timesteps
-# batch_expert_params.exploration_final_eps=1.0     # and always (i.e. with prob eps=1.0 ) explore
-# batch_expert_params.double_q = False
+# batch_expert_params.exploration_final_eps=0.01     # and always (i.e. with prob eps=1.0 ) explore
+# batch_expert_params.double_q = True
+# batch_expert_params.batch_size = 128
+
+
 
 
 
@@ -47,6 +50,7 @@ batch_expert_params = RandomAgentParams()
 # Agent Params                                           #
 # Default values:
 # policy = 'MlpPolicy'  # or 'CnnPolicy' or 'CustomDQNPolicy'
+# gen_act_model = 'NN'
 # learning_rate = 1e-4
 # learning_starts = 1000
 # target_network_update_freq = 500
@@ -65,21 +69,34 @@ batch_expert_params = RandomAgentParams()
 ##########################################################
 agent_params = DBCQAgentParams()
 # here we can change the various parameters - for example, we can change the batch size
-agent_params.policy = CustomDQNPolicy
+agent_params.policy = MlpPolicy
 agent_params.verbose = 1
-agent_params.learning_rate = 1e-3
+agent_params.learning_rate = 1e-4
+agent_params.policy_kwargs = {'dueling':False,'layers': [256, 512]}
+agent_params.target_network_update_freq = 1         # every 1 epoch
+agent_params.val_freq = 1               # every 1 epoch
+agent_params.batch_size = 128
+agent_params.buffer_train_fraction = 1.0         # currently online evaluation. use all buffer for training
+agent_params.gen_act_params['lr'] = 1e-4
+agent_params.gen_act_params['batch_size'] = 128
+
+
+
+
+
 
 ##########################################################
 # Experiment                                             #
 ##########################################################
 experiment_params = ExperimentParams()
-experiment_params.n_timesteps = int(1e5)
+experiment_params.n_timesteps = int(1e7)
 experiment_params.env_params = env_params
 experiment_params.agent_params = agent_params
 experiment_params.batch_expert_params = batch_expert_params
 experiment_params.batch_experience_buffer = None
 experiment_params.batch_expert_n_timesteps = int(1e5)       # n_timesteps to train the expert before starting to rollout
-experiment_params.batch_expert_steps_to_record = int(5e4)   # number of steps to rollout into the buffer
+                                                            # not relevant for random
+experiment_params.batch_expert_steps_to_record = 50000      # number of steps to rollout into the buffer
 experiment_params.name = __name__.split('.')[-1]
 
 

@@ -1,5 +1,4 @@
 from my_zoo.hyperparams.default_config import DQNAgentParams,ExperimentParams, EnvParams
-from stable_baselines.deepq import MlpPolicy
 from zoo.utils import CustomDQNPolicy
 
 ##########################################################
@@ -12,6 +11,7 @@ env_params.env_id = 'acrobot'
 # Policy        #
 #################
 policy = CustomDQNPolicy
+
 
 ##########################################################
 # Agent Params                                           #
@@ -44,7 +44,6 @@ agent_params.policy = policy
 agent_params.learning_rate = 1e-3
 agent_params.exploration_final_eps= 0.1
 agent_params.prioritized_replay = True
-
 
 
 ##########################################################

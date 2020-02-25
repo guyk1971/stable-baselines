@@ -31,7 +31,7 @@ class DBCQ(OffPolicyRLModel):
                 Should be the same environment with which we created the buffer we learn from.
                 if env=None and val_freq>0 we need to do OPE. currently its not supported.
     :param replay_buffer: (ReplayBuffer) - the buffer from which we'll learn
-    :param gen_act_model: (DQNPolicy or str) the generative model that we'll learn. can also be 'knn'
+    :param gen_act_model: (str) the generative model that we'll learn. can be 'NN' or 'kNN'
             for k nearest neighbor
     :param gamma: (float) discount factor
     :param learning_rate: (float) learning rate for adam optimizer
@@ -75,6 +75,8 @@ class DBCQ(OffPolicyRLModel):
         if self.gen_act_model == 'NN':      # if using neural net for the generative model, use the same policy func
                                             # as the main policy
             self.gen_act_model = self.policy
+        else:
+            raise TypeError('K nearest neighbor is not yet supported in DBCQ')
 
         self.tensorboard_log = tensorboard_log
         self.full_tensorboard_log = full_tensorboard_log
@@ -233,15 +235,13 @@ class DBCQ(OffPolicyRLModel):
 
                 val_loss /= len(dataset.val_loader)
                 if self.verbose > 0:
-                    print("==== Training progress {:.2f}% ====".format(100 * (epoch_idx + 1) / n_epochs))
-                    print('Epoch {}'.format(epoch_idx + 1))
-                    print("Training loss: {:.6f}, Validation loss: {:.6f}".format(train_loss, val_loss))
-                    print()
+                    print("==== Gen Model Training progress {:.2f}% ====".format(100 * (epoch_idx + 1) / n_epochs))
+                    print("Training loss: {:.6f}, Validation loss: {:.6f} \n".format(train_loss, val_loss))
             # Free memory
             del expert_obs, expert_actions
         return
 
-    def learn(self, total_timesteps, callback=None, log_interval=100, tb_log_name="DBCQ",
+    def learn(self, total_timesteps, callback=None, log_interval=10, tb_log_name="DBCQ",
               reset_num_timesteps=True, replay_wrapper=None):
         new_tb_log = self._init_num_timesteps(reset_num_timesteps)
 
@@ -254,6 +254,7 @@ class DBCQ(OffPolicyRLModel):
             iter_cnt=0        # iterations counter
             ts=0
             epoch = 0   # epochs counter
+            last_updadte_target_ts = 0
             n_minibatches = len(self.dataset.train_loader)
             while ts < total_timesteps:
                 if callback is not None:
@@ -289,21 +290,25 @@ class DBCQ(OffPolicyRLModel):
                 epoch += 1     # inc
                 # finished going through the data. summarize the epoch:
                 avg_epoch_loss = loss/n_minibatches
-                if epoch % self.target_network_update_freq == 0:
+                # should_update_target = ((ts-last_updadte_target_ts)>self.target_network_update_freq)
+                should_update_target = ((epoch % self.target_network_update_freq) ==0)
+                if should_update_target:
                     # Update target network periodically.
                     self.update_target(sess=self.sess)
+                    last_updadte_target_ts = ts
+
+
 
                 if self.val_freq>0 and ((epoch+1) % self.val_freq) == 0:
                     if self.env is not None:
                         mean_reward,_ = online_policy_eval(self,self.env)
-                        print("Evaluating on env: mean reward={0}".format(mean_reward))
                     else:
                         raise RuntimeError("Off Policy Evaluation is not supported yet")
 
                 if self.verbose >= 1 and log_interval is not None:
                     logger.record_tabular("epoch", epoch)
                     logger.record_tabular("epoch_loss", avg_epoch_loss)
-                    logger.record_tabular("mean 100 episode reward", mean_reward)
+                    logger.record_tabular("mean 10 episode reward", mean_reward)
                     logger.dump_tabular()
 
         return self

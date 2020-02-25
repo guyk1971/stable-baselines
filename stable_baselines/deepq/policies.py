@@ -135,6 +135,22 @@ class FeedForwardPolicy(DQNPolicy):
         self._setup_init()
 
     def step(self, obs, state=None, mask=None, deterministic=True):
+        '''
+        step method is used to derive actions to do step in the environment *in evaluation mode*
+        Note that as opposed to the act_f function created in the agent, is for training.
+        During training we might want to support epsilon greedy with eps decay. this is what the act_f does.
+        with probability eps it chooses uniformly random , with probability 1-eps it chooses argmax (q_values)
+
+        This function is deterministic by default (taking argmax(q_values)) but also supports stochastic mode
+        in which it takes np.random.choice(n_actions, p=actions_proba)
+        where actions_proba is softmax(q_values)
+
+        :param obs:
+        :param state:
+        :param mask:
+        :param deterministic:
+        :return:
+        '''
         q_values, actions_proba = self.sess.run([self.q_values, self.policy_proba], {self.obs_ph: obs})
         if deterministic:
             actions = np.argmax(q_values, axis=1)
@@ -245,7 +261,7 @@ class LnMlpPolicy(FeedForwardPolicy):
                  reuse=False, obs_phs=None, dueling=True, **_kwargs):
         super(LnMlpPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
                                           feature_extraction="mlp", obs_phs=obs_phs,
-                                          layer_norm=True, dueling=True, **_kwargs)
+                                          layer_norm=True, dueling=dueling, **_kwargs)
 
 
 register_policy("CnnPolicy", CnnPolicy)

@@ -662,7 +662,7 @@ def _demo():
     with ScopedConfigure(None, None):
         info("^^^ should see b = 33.3")
 
-    with ScopedConfigure("/tmp/test-logger/", ["json"]):
+    with ScopedConfigure("/tmp/test-logger/", ["csv"]):
         logkv("b", -2.5)
         dumpkvs()
 

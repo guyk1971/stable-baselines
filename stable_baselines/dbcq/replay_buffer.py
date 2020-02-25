@@ -325,7 +325,7 @@ class ExperienceDataset(object):
         val_indices = indices[int(train_fraction * len(indices)):]
 
         assert len(train_indices) > 0, "No sample for the training set"
-        assert len(val_indices) > 0, "No sample for the validation set"
+        # assert len(val_indices) > 0, "No sample for the validation set"
 
         self.observations = observations
         self.actions = actions
@@ -351,10 +351,12 @@ class ExperienceDataset(object):
                                                  self.observations_tp1, self.dones,
                                                  batch_size,shuffle=self.randomize, start_process=False,
                                                  sequential=sequential_preprocessing)
-        self.val_loader = ExperienceDataLoader(val_indices, self.observations, self.actions, self.rewards,
-                                               self.observations_tp1, self.dones,
-                                               batch_size,shuffle=self.randomize, start_process=False,
-                                               sequential=sequential_preprocessing)
+        self.val_loader = None
+        if len(val_indices)>0:
+            self.val_loader = ExperienceDataLoader(val_indices, self.observations, self.actions, self.rewards,
+                                                   self.observations_tp1, self.dones,
+                                                   batch_size,shuffle=self.randomize, start_process=False,
+                                                   sequential=sequential_preprocessing)
 
         if self.verbose >= 1:
             self.log_info()
