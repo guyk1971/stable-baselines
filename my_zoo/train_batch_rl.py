@@ -18,7 +18,7 @@ from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
 from stable_baselines.dbcq.expert_dataset import generate_experience_traj
 from my_zoo.utils.utils import ALGOS
-# from stable_baselines.dbcq.dbcq import DBCQ
+from stable_baselines.dbcq.dbcq import DBCQ
 
 
 
