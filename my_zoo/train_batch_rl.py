@@ -68,6 +68,11 @@ def create_experience_buffer(experiment_params,output_dir):
     :return: experience_buffer that can be consumed (wrapped) by ExpertData
     '''
     # todo: if its trained agent, read the batch_expert_params from the config.yml within the trained agent folder
+    # yml_filename = os.path.join(trained_agent_parent_folder,'config.yml')
+    # with open(yml_filename, 'r') as f:
+    #      cfg = yaml.load(f, Loader=yaml.UnsafeLoader)
+    # exp_agent_params = cfg['agent_params']
+
     exp_agent_params = experiment_params.batch_expert_params.as_dict()
     exp_agent_params['verbose'] = experiment_params.verbose
     exp_agent_params['tensorboard_log'] = output_dir
