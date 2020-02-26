@@ -14,9 +14,12 @@ from collections import OrderedDict
 import gym
 import numpy as np
 import yaml
+from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
 from stable_baselines.dbcq.expert_dataset import generate_experience_traj
 from stable_baselines.dbcq.dbcq import DBCQ
+
+
 
 try:
     import mpi4py
@@ -27,7 +30,9 @@ except ImportError:
 from zoo.utils import ALGOS
 
 from my_zoo.utils.common import *
-from my_zoo.utils.train import create_logger,get_create_env,parse_agent_params
+from my_zoo.utils.train import get_create_env,parse_agent_params
+
+
 
 
 
@@ -135,8 +140,7 @@ def create_experience_buffer(experiment_params,output_dir):
     # option 2: use generate_expert_data
     experience_buffer = generate_experience_traj(model, save_path=exp_buf_filename, env=env,
                                                  n_timesteps_train=int(experiment_params.batch_expert_n_timesteps),
-                                                 n_timesteps_record=experiment_params.batch_expert_steps_to_record,
-                                                 logger=logger)
+                                                 n_timesteps_record=experiment_params.batch_expert_steps_to_record)
     logger.info('Saved experience buffer to ' + exp_buf_filename)
     env.close()
     return experience_buffer
@@ -165,9 +169,9 @@ def run_experiment(experiment_params):
 
     rank = 0
     if mpi4py is not None and MPI.COMM_WORLD.Get_size() > 1:
-        print("Using MPI for multiprocessing with {} workers".format(MPI.COMM_WORLD.Get_size()))
+        logger.info("Using MPI for multiprocessing with {} workers".format(MPI.COMM_WORLD.Get_size()))
         rank = MPI.COMM_WORLD.Get_rank()
-        print("Worker rank: {}".format(rank))
+        logger.info("Worker rank: {}".format(rank))
         # make sure that each worker has its own seed
         seed += rank
         # we allow only one worker to "speak"
@@ -179,89 +183,91 @@ def run_experiment(experiment_params):
     # create a working directory for the relevant seed
     output_dir=os.path.join(experiment_params.output_root_dir,str(seed))
     os.makedirs(output_dir, exist_ok=True)
+    # set the tensorboard log for the agent
+    experiment_params.agent_params.tensorboard_log = output_dir
+    with logger.ScopedOutputConfig(output_dir,['csv'],str(seed)):
+        # logger.info(experiment_params.as_dict())
+        # set the seed for the current worker
+        experiment_params.agent_params.seed = seed
 
-    # logger.info(experiment_params.as_dict())
-    # set the seed for the current worker
-    experiment_params.agent_params.seed = seed
+        saved_exp_agent_hparams = None
+        if experiment_params.batch_expert_params:
+            experiment_params.batch_expert_params.seed = seed
+            exp_agent_hparams = experiment_params.batch_expert_params.as_dict()
+            saved_exp_agent_hparams = OrderedDict(
+                [(key, str(exp_agent_hparams[key])) for key in sorted(exp_agent_hparams.keys())])
 
-    saved_exp_agent_hparams = None
-    if experiment_params.batch_expert_params:
-        experiment_params.batch_expert_params.seed = seed
-        exp_agent_hparams = experiment_params.batch_expert_params.as_dict()
-        saved_exp_agent_hparams = OrderedDict(
-            [(key, str(exp_agent_hparams[key])) for key in sorted(exp_agent_hparams.keys())])
+        agent_hyperparams = experiment_params.agent_params.as_dict()
+        env_params_dict = experiment_params.env_params.as_dict()
+        exparams_dict = experiment_params.as_dict()
 
-    agent_hyperparams = experiment_params.agent_params.as_dict()
-    env_params_dict = experiment_params.env_params.as_dict()
-    exparams_dict = experiment_params.as_dict()
+        saved_env_params = OrderedDict([(key, str(env_params_dict[key])) for key in sorted(env_params_dict.keys())])
+        saved_agent_hparams = OrderedDict([(key, str(agent_hyperparams[key])) for key in sorted(agent_hyperparams.keys())])
 
-    saved_env_params = OrderedDict([(key, str(env_params_dict[key])) for key in sorted(env_params_dict.keys())])
-    saved_agent_hparams = OrderedDict([(key, str(agent_hyperparams[key])) for key in sorted(agent_hyperparams.keys())])
+        saved_hyperparams = OrderedDict([(key, str(exparams_dict[key])) for key in exparams_dict.keys()])
+        saved_hyperparams['agent_params']=saved_agent_hparams
+        saved_hyperparams['env_params'] = saved_env_params
+        saved_hyperparams['batch_expert_params'] = saved_exp_agent_hparams
 
-    saved_hyperparams = OrderedDict([(key, str(exparams_dict[key])) for key in exparams_dict.keys()])
-    saved_hyperparams['agent_params']=saved_agent_hparams
-    saved_hyperparams['env_params'] = saved_env_params
-    saved_hyperparams['batch_expert_params'] = saved_exp_agent_hparams
+        # load or create the experience replay buffer
+        er_buf = load_or_create_experience_buffer(experiment_params,output_dir)
+        # start batch rl training
+        er_buf_size = len(er_buf['obs'])
+        logger.info("Experience buffer is ready with {0} samples".format(er_buf_size))
+        logger.info(title('start batch training',30))
 
-    # load or create the experience replay buffer
-    er_buf = load_or_create_experience_buffer(experiment_params,output_dir)
-    # start batch rl training
-    er_buf_size = len(er_buf['obs'])
-    logger.info("Experience buffer is ready with {0} samples".format(er_buf_size))
-    logger.info(title('start batch training',30))
+        ###################
+        # make the env for evaluation
+        algo = agent_hyperparams['algorithm']
+        # batch mode - the envs are only for evaluation
+        n_envs = experiment_params.n_envs
+        env = env_make(n_envs,experiment_params.env_params,algo,seed)
 
-    ###################
-    # make the env for evaluation
-    algo = agent_hyperparams['algorithm']
-    # batch mode - the envs are only for evaluation
-    n_envs = experiment_params.n_envs
-    env = env_make(n_envs,experiment_params.env_params,algo,seed)
+        #####################
+        # create the agent
+        n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
+        # since the batch algorithm is currently only dbcq, no need to parse agent params
+        # but we need to drop the algorithm from the parameters (as done in parse_agent_params)
+        # parse_agent_params(agent_hyperparams,n_actions,experiment_params.n_timesteps,logger)
+        del agent_hyperparams['algorithm']
 
-    #####################
-    # create the agent
-    n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
-    # since the batch algorithm is currently only dbcq, no need to parse agent params
-    # but we need to drop the algorithm from the parameters (as done in parse_agent_params)
-    # parse_agent_params(agent_hyperparams,n_actions,experiment_params.n_timesteps,logger)
-    del agent_hyperparams['algorithm']
+        normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
+        if normalize:
+            logger.warning("normalize observation or reward should be handled in batch mode")
 
-    normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
-    if normalize:
-        logger.warning("normalize observation or reward should be handled in batch mode")
+        trained_agent = experiment_params.trained_agent
+        if trained_agent:
+            valid_extension = trained_agent.endswith('.pkl') or trained_agent.endswith('.zip')
+            assert valid_extension and os.path.isfile(trained_agent), \
+                "The trained_agent must be a valid path to a .zip/.pkl file"
+            logger.info("loading pretrained agent to continue training")
+            # if policy is defined, delete as it will be loaded with the trained agent
+            del agent_hyperparams['policy']
+            # model = ALGOS[algo].load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
+            model = DBCQ.load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
 
-    trained_agent = experiment_params.trained_agent
-    if trained_agent:
-        valid_extension = trained_agent.endswith('.pkl') or trained_agent.endswith('.zip')
-        assert valid_extension and os.path.isfile(trained_agent), \
-            "The trained_agent must be a valid path to a .zip/.pkl file"
-        logger.info("loading pretrained agent to continue training")
-        # if policy is defined, delete as it will be loaded with the trained agent
-        del agent_hyperparams['policy']
-        # model = ALGOS[algo].load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
-        model = DBCQ.load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
+        else:  # create a model from scratch
+            # model = ALGOS[algo](env=env, replay_buffer=er_buf, **agent_hyperparams)
+            model = DBCQ(env=env, replay_buffer=er_buf, **agent_hyperparams)
 
-    else:  # create a model from scratch
-        # model = ALGOS[algo](env=env, replay_buffer=er_buf, **agent_hyperparams)
-        model = DBCQ(env=env, replay_buffer=er_buf, **agent_hyperparams)
+        kwargs = {}
+        if experiment_params.log_interval > -1:
+            kwargs = {'log_interval': experiment_params.log_interval}
+        model.learn(int(experiment_params.n_timesteps),tb_log_name='main_agent_train', **kwargs)
 
-    kwargs = {}
-    if experiment_params.log_interval > -1:
-        kwargs = {'log_interval': experiment_params.log_interval}
-    model.learn(int(experiment_params.n_timesteps), **kwargs)
+        # Save trained model
+        save_path = output_dir
+        params_path = "{}/{}".format(save_path, 'model_params')
+        os.makedirs(params_path, exist_ok=True)
 
-    # Save trained model
-    save_path = output_dir
-    params_path = "{}/{}".format(save_path, 'model_params')
-    os.makedirs(params_path, exist_ok=True)
-
-    if rank == 0:
-        logger.info("Saving to {}".format(save_path))
-        model.save(params_path)
-        # Save hyperparams
-        # note that in order to save as yaml I need to avoid using classes in the definition.
-        # e.g. CustomDQNPolicy will not work. I need to put a string and parse it later
-        with open(os.path.join(output_dir, 'config.yml'), 'w') as f:
-            yaml.dump(saved_hyperparams, f)
+        if rank == 0:
+            logger.info("Saving to {}".format(save_path))
+            model.save(params_path)
+            # Save hyperparams
+            # note that in order to save as yaml I need to avoid using classes in the definition.
+            # e.g. CustomDQNPolicy will not work. I need to put a string and parse it later
+            with open(os.path.join(output_dir, 'config.yml'), 'w') as f:
+                yaml.dump(saved_hyperparams, f)
     return
 
 
@@ -270,7 +276,6 @@ def main():
 
     args = parse_cmd_line()
     print('reading experiment params from '+args.exparams)
-
     module_path = 'my_zoo.hyperparams.'+args.exparams
     exp_params_module = importlib.import_module(module_path)
     experiment_params = getattr(exp_params_module,'experiment_params')
@@ -288,10 +293,8 @@ def main():
     experiment_params.output_root_dir = os.path.join(experiment_params.output_root_dir,exp_folder_name)
     os.makedirs(experiment_params.output_root_dir, exist_ok=True)
 
-    global logger
-    logger = create_logger(LOGGER_NAME,experiment_params,stdout_to_log=False)
-
-
+    # glogger = create_logger(LOGGER_NAME,experiment_params)
+    logger.configure(os.path.join(experiment_params.output_root_dir),['stdout', 'log'])
     # check if some cmd line arguments should override the experiment params
     if args.n_timesteps > -1:
         logger.info("overriding n_timesteps with {}".format(args.n_timesteps))
@@ -308,8 +311,6 @@ def main():
         run_experiment(experiment_params)
 
     # prepare for shutdown logger
-    sys.stdout=sys.__stdout__
-    sys.stderr=sys.__stderr__
     logging.shutdown()
     return
 
@@ -317,5 +318,5 @@ def main():
 
 
 if __name__ == '__main__':
-    # suppress_tensorflow_warnings()
+    suppress_tensorflow_warnings()
     main()

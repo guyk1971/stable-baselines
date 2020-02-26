@@ -277,8 +277,10 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
         weighted_error = tf.reduce_mean(importance_weights_ph * errors)
 
         tf.summary.scalar("td_error", tf.reduce_mean(td_error))
-        tf.summary.scalar("wgt_error", weighted_error)
-        tf.summary.scalar("loss",loss)
+        tf.summary.scalar("avg_next_action_likelihood_ratio",tf.reduce_mean(tf.exp(next_act_llr)))
+        # tf.summary.histogram("next_action_LL_ratio",next_act_llr)
+        # tf.summary.scalar("wgt_error", weighted_error)
+        tf.summary.scalar("huber loss",loss)
 
         if full_tensorboard_log:
             tf.summary.histogram("td_error", td_error)
@@ -304,7 +306,7 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
 
     with tf.variable_scope("input_info", reuse=False):
         tf.summary.scalar('rewards', tf.reduce_mean(rew_t_ph))
-        tf.summary.scalar('importance_weights', tf.reduce_mean(importance_weights_ph))
+        # tf.summary.scalar('importance_weights', tf.reduce_mean(importance_weights_ph))
 
         if full_tensorboard_log:
             tf.summary.histogram('rewards', rew_t_ph)

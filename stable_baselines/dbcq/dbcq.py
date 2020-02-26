@@ -208,7 +208,7 @@ class DBCQ(OffPolicyRLModel):
             self.sess.run(tf.global_variables_initializer())
 
         if self.verbose > 0:
-            print("Training generative model with Behavior Cloning...")
+            logger.info("Training generative model with Behavior Cloning...")
 
         for epoch_idx in range(int(n_epochs)):
             train_loss = 0.0
@@ -235,8 +235,8 @@ class DBCQ(OffPolicyRLModel):
 
                 val_loss /= len(dataset.val_loader)
                 if self.verbose > 0:
-                    print("==== Gen Model Training progress {:.2f}% ====".format(100 * (epoch_idx + 1) / n_epochs))
-                    print("Training loss: {:.6f}, Validation loss: {:.6f} \n".format(train_loss, val_loss))
+                    logger.info("==== Gen Model Training progress {:.2f}% ====".format(100 * (epoch_idx + 1) / n_epochs))
+                    logger.info("Training loss: {:.6f}, Validation loss: {:.6f} \n".format(train_loss, val_loss))
             # Free memory
             del expert_obs, expert_actions
         return
@@ -248,9 +248,9 @@ class DBCQ(OffPolicyRLModel):
         with SetVerbosity(self.verbose), TensorboardWriter(self.graph, self.tensorboard_log, tb_log_name, new_tb_log) \
                 as writer:
             self._setup_learn()
-            print('training the generative model')
+            logger.info('training the generative model')
             self.train_gen_act_model()
-            print('finished training the generative model')
+            logger.info('finished training the generative model')
             iter_cnt=0        # iterations counter
             ts=0
             epoch = 0   # epochs counter

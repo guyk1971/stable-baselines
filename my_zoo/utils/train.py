@@ -21,24 +21,11 @@ from zoo.utils.noise import LinearNormalActionNoise
 
 from my_zoo.utils.common import *
 from my_zoo.hyperparams.default_config import CC_ENVS
+# from my_zoo.utils.global_logger import glogger
+from stable_baselines import logger
 
 
-def create_logger(logger_name,exp_params,stdout_to_log=True):
-
-    log_file_name=os.path.join(exp_params.output_root_dir,exp_params.name+'.log')
-    log_level=exp_params.log_level
-    log_format=exp_params.log_format
-    logger = MyLogger(logger_name,filename=log_file_name,
-                      level=log_level,format=log_format).get_logger()
-
-    if stdout_to_log:
-        sys.stdout = StreamToLogger(logger, logging.INFO)
-        sys.stderr = StreamToLogger(logger, logging.ERROR)
-
-    return logger
-
-
-def get_create_env(algo,seed,env_params,logger):
+def get_create_env(algo,seed,env_params,logger=None):
     # logger = logging.getLogger(LOGGER_NAME)
     env_id = CC_ENVS.get(env_params.env_id,None)
     assert env_id , "env {0} is not supported".format(env_id)
@@ -90,7 +77,7 @@ def get_create_env(algo,seed,env_params,logger):
     # return partial(_create_env,env_wrapper)
 
 
-def parse_agent_params(hyperparams,n_actions,n_timesteps,logger):
+def parse_agent_params(hyperparams,n_actions,n_timesteps,logger=None):
 
     algo = hyperparams['algorithm']
     del hyperparams['algorithm']

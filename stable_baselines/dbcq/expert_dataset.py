@@ -5,7 +5,7 @@ from typing import Dict
 import cv2  # pytype:disable=import-error
 import numpy as np
 from gym import spaces
-
+from stable_baselines import logger
 from stable_baselines.common.base_class import BaseRLModel
 from stable_baselines.common.vec_env import VecEnv, VecFrameStack
 from stable_baselines.common.base_class import _UnvecWrapper
@@ -14,7 +14,7 @@ from my_zoo.utils.common import title
 from stable_baselines.dbcq.replay_buffer import ReplayBuffer
 
 def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=0,
-                         n_timesteps_record=100000, logger=None):
+                         n_timesteps_record=100000):
     """
     Train expert controller (if needed) and record expert trajectories.
 
@@ -61,13 +61,13 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
     obs_space = env.observation_space
     replay_buffer = ReplayBuffer(n_timesteps_record)
 
-    print(title("generate expert trajectory",20))
-    print("training expert start - {0} timesteps".format(n_timesteps_train))
+    logger.info(title("generate expert trajectory",20))
+    logger.info("training expert start - {0} timesteps".format(n_timesteps_train))
     if n_timesteps_train > 0 and isinstance(model, BaseRLModel):
-        model.learn(n_timesteps_train)
+        model.learn(n_timesteps_train,tb_log_name='exp_gen_train')
 
-    print("generate expert trajectory: training expert end")
-    print("start recording {0} expert steps".format(n_timesteps_record))
+    logger.info("generate expert trajectory: training expert end")
+    logger.info("start recording {0} expert steps".format(n_timesteps_record))
 
     episode_returns = []
     episode_starts = []
@@ -113,7 +113,7 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
             reward_sum = 0.0
             ep_idx += 1
 
-    print("finished collecting experience data")
+    logger.info("finished collecting experience data")
     numpy_dict = replay_buffer.record_buffer()
     # Note : the ReplayBuffer can not generally assume it has not circled around thus cant infer accurate episode
     # statistics. since in this context we know these details, we overwrite the corresponding fields:
