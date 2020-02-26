@@ -25,7 +25,7 @@ from my_zoo.hyperparams.default_config import CC_ENVS
 from stable_baselines import logger
 
 
-def get_create_env(algo,seed,env_params,logger=None):
+def get_create_env(algo,seed,env_params):
     # logger = logging.getLogger(LOGGER_NAME)
     env_id = CC_ENVS.get(env_params.env_id,None)
     assert env_id , "env {0} is not supported".format(env_id)
@@ -77,7 +77,7 @@ def get_create_env(algo,seed,env_params,logger=None):
     # return partial(_create_env,env_wrapper)
 
 
-def parse_agent_params(hyperparams,n_actions,n_timesteps,logger=None):
+def parse_agent_params(hyperparams,n_actions,n_timesteps):
 
     algo = hyperparams['algorithm']
     del hyperparams['algorithm']

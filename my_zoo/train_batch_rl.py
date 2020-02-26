@@ -17,7 +17,8 @@ import yaml
 from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
 from stable_baselines.dbcq.expert_dataset import generate_experience_traj
-from stable_baselines.dbcq.dbcq import DBCQ
+from my_zoo.utils.utils import ALGOS
+# from stable_baselines.dbcq.dbcq import DBCQ
 
 
 
@@ -27,7 +28,7 @@ try:
 except ImportError:
     mpi4py = None
 
-from zoo.utils import ALGOS
+
 
 from my_zoo.utils.common import *
 from my_zoo.utils.train import get_create_env,parse_agent_params
@@ -54,7 +55,7 @@ def parse_cmd_line():
 def env_make(n_envs,env_params,algo,seed):
     env_id = env_params.env_id
     logger.info('using {0} instances of {1} :'.format(n_envs,env_id))
-    create_env = get_create_env(algo,seed,env_params,logger)
+    create_env = get_create_env(algo,seed,env_params)
     env = create_env(n_envs)
     return env
 
@@ -66,10 +67,10 @@ def create_experience_buffer(experiment_params,output_dir):
     :param output_dir: location of where to save the experience buffer
     :return: experience_buffer that can be consumed (wrapped) by ExpertData
     '''
+    # todo: if its trained agent, read the batch_expert_params from the config.yml within the trained agent folder
     exp_agent_params = experiment_params.batch_expert_params.as_dict()
-    experiment_params.batch_expert_params.verbose = experiment_params.verbose
-    if experiment_params.verbose > 0:
-        experiment_params.batch_expert_params.tensorboard_log = output_dir
+    exp_agent_params['verbose'] = experiment_params.verbose
+    exp_agent_params['tensorboard_log'] = output_dir
 
     algo = exp_agent_params['algorithm']
     seed = experiment_params.batch_expert_params.seed
@@ -95,11 +96,11 @@ def create_experience_buffer(experiment_params,output_dir):
             raise ValueError('{} requires MPI to be installed'.format(algo))
 
         n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
-        parse_agent_params(exp_agent_params,n_actions,experiment_params.n_timesteps,logger)
+        parse_agent_params(exp_agent_params,n_actions,experiment_params.n_timesteps)
 
         normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
-        explore_frac = exp_agent_params['exploration_fraction']
-        explore_final_eps = exp_agent_params['exploration_final_eps']
+        # explore_frac = exp_agent_params['exploration_fraction']
+        # explore_final_eps = exp_agent_params['exploration_final_eps']
 
         trained_agent = experiment_params.batch_experience_trained_agent
         if trained_agent:
@@ -122,8 +123,7 @@ def create_experience_buffer(experiment_params,output_dir):
     exp_agent_algo = experiment_params.batch_expert_params.algorithm
     exp_buf_filename = 'er_'+experiment_params.env_params.env_id+'_'+exp_agent_algo
     exp_buf_filename = os.path.join(output_dir,exp_buf_filename)
-    logger.info('start generating expert data with exploration fraction and final eps: ({0},{1})'.format(explore_frac,
-                                                                                                   explore_final_eps))
+    logger.info('Generating experience buffer with ' + exp_agent_algo)
     # at this point, we have 2 options:
     #########################
     # option 1: create it manually
@@ -154,7 +154,6 @@ def load_or_create_experience_buffer(experiment_params,output_dir):
         experience_buffer = np.load(experiment_params.batch_experience_buffer,allow_pickle=True)
         return experience_buffer
     # if we got to this line, we need to generate an experience buffer
-    logger.info('Generating experience buffer with ' + experiment_params.batch_expert_params.algorithm)
     experience_buffer = create_experience_buffer(experiment_params,output_dir)
     return experience_buffer
 

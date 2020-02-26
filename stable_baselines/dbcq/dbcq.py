@@ -51,7 +51,7 @@ class DBCQ(OffPolicyRLModel):
     :param n_cpu_tf_sess: (int) The number of threads for TensorFlow operations
         If None, the number of cpu of the current machine will be used.
     """
-    def __init__(self, policy, env, replay_buffer, gen_act_model=None ,gamma=0.99, learning_rate=5e-4,
+    def __init__(self, policy, env, replay_buffer=None, gen_act_model=None ,gamma=0.99, learning_rate=5e-4,
                  val_freq=0, batch_size=32, target_network_update_freq=500,
                  buffer_train_fraction=0.8, gen_act_params = None,param_noise=False, act_distance_thresh=0.3,
                  n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
@@ -244,6 +244,9 @@ class DBCQ(OffPolicyRLModel):
     def learn(self, total_timesteps, callback=None, log_interval=10, tb_log_name="DBCQ",
               reset_num_timesteps=True, replay_wrapper=None):
         new_tb_log = self._init_num_timesteps(reset_num_timesteps)
+        if self.replay_buffer is None:
+            logger.warn('DBCQ needs full replay buffer to train on. returning without learning ')
+            return self
 
         with SetVerbosity(self.verbose), TensorboardWriter(self.graph, self.tensorboard_log, tb_log_name, new_tb_log) \
                 as writer:
@@ -357,6 +360,7 @@ class DBCQ(OffPolicyRLModel):
     def save(self, save_path, cloudpickle=False):
         # params
         data = {
+            "algorithm":'dbcq',
             "param_noise": self.param_noise,
             "val_freq": self.val_freq,
             "batch_size": self.batch_size,
