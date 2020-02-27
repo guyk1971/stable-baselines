@@ -14,6 +14,7 @@ from collections import OrderedDict
 import gym
 import numpy as np
 import yaml
+import ast
 from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
 from stable_baselines.dbcq.expert_dataset import generate_experience_traj
@@ -67,25 +68,34 @@ def create_experience_buffer(experiment_params,output_dir):
     :param output_dir: location of where to save the experience buffer
     :return: experience_buffer that can be consumed (wrapped) by ExpertData
     '''
-    # todo: if its trained agent, read the batch_expert_params from the config.yml within the trained agent folder
-    # yml_filename = os.path.join(trained_agent_parent_folder,'config.yml')
-    # with open(yml_filename, 'r') as f:
-    #      cfg = yaml.load(f, Loader=yaml.UnsafeLoader)
-    # exp_agent_params = cfg['agent_params']
 
-    exp_agent_params = experiment_params.batch_expert_params.as_dict()
+
+    trained_agent_params_file = experiment_params.batch_experience_trained_agent
+    if trained_agent_params_file:
+        trained_agent_params_folder=os.path.dirname(os.path.realpath(trained_agent_params_file))
+        yml_filename = os.path.join(trained_agent_params_folder,'config.yml')
+        with open(yml_filename, 'r') as f:
+             cfg = yaml.load(f, Loader=yaml.UnsafeLoader)
+        exp_agent_params = cfg['agent_params']
+        # parse the agent params from the loaded yaml
+        for k in exp_agent_params.keys():
+            try:
+                exp_agent_params[k] = ast.literal_eval(exp_agent_params[k])
+            except (ValueError,SyntaxError):
+                pass
+    else:       # no pretrained expert, expect to get the parameters from experiment_params
+        exp_agent_params = experiment_params.batch_expert_params.as_dict()
+
     exp_agent_params['verbose'] = experiment_params.verbose
     exp_agent_params['tensorboard_log'] = output_dir
-
     algo = exp_agent_params['algorithm']
-    seed = experiment_params.batch_expert_params.seed
+    seed = exp_agent_params['seed']
     ###################
     # make the env
     n_envs = experiment_params.n_envs
     env = env_make(n_envs,experiment_params.env_params,algo,seed)
     #####################
     # create the agent
-
     if algo=='random':      # if we simply need a random agent, we're creating a callable object for model
         try:
             _ = env.action_space.sample()
@@ -94,23 +104,18 @@ def create_experience_buffer(experiment_params,output_dir):
         def model(obs,gymenv=env):
             action = gymenv.action_space.sample()
             return action
-        explore_frac = 1.0          # explore throughout the entire buffer
-        explore_final_eps = 1.0     # 100% exploration i.e. pure random
     else:
         if ALGOS[algo] is None:
             raise ValueError('{} requires MPI to be installed'.format(algo))
 
         n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
         parse_agent_params(exp_agent_params,n_actions,experiment_params.n_timesteps)
-
         normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
-        # explore_frac = exp_agent_params['exploration_fraction']
-        # explore_final_eps = exp_agent_params['exploration_final_eps']
 
         trained_agent = experiment_params.batch_experience_trained_agent
-        if trained_agent:
-            valid_extension = trained_agent.endswith('.pkl') or trained_agent.endswith('.zip')
-            assert valid_extension and os.path.isfile(trained_agent), \
+        if trained_agent_params_file:
+            valid_extension = trained_agent_params_file.endswith('.pkl') or trained_agent_params_file.endswith('.zip')
+            assert valid_extension and os.path.isfile(trained_agent_params_file), \
                 "The trained_agent must be a valid path to a .zip/.pkl file"
             logger.info("loading pretrained agent to continue training")
             # if policy is defined, delete as it will be loaded with the trained agent

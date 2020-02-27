@@ -377,10 +377,10 @@ class DBCQAgentParams(AgentParams):
         self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
                                                 # the rest (20%) will be used for Off policy evaluation
         # parameters of the generative model for actions
-        self.gen_act_model = 'NN'   # 'KNN' for K nearest neighbors, 'NN' for Neural Net
-                                    # if 'NN' the agent will use the same type of policy for the generative model
-        self.gen_act_params = {'n_epochs': 50, 'lr':1e-3, 'train_frac':0.7, 'batch_size':64}
-        # self.gen_act_params = {'size': 1000}  # knn parameters
+        self.gen_act_model = None               # 'KNN' for K nearest neighbors, 'NN' for Neural Net
+                                                # if 'NN' the agent will use the same type of policy for the generative model
+        self.gen_act_params = {'type': 'NN', 'n_epochs': 50, 'lr': 1e-3, 'train_frac': 0.7, 'batch_size': 64}
+        # self.gen_act_params = {'type':'KNN','size': 1000}  # knn parameters
         self.n_cpu_tf_sess = None
         self.policy_kwargs = None
         return

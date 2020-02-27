@@ -31,14 +31,15 @@ class DBCQ(OffPolicyRLModel):
                 Should be the same environment with which we created the buffer we learn from.
                 if env=None and val_freq>0 we need to do OPE. currently its not supported.
     :param replay_buffer: (ReplayBuffer) - the buffer from which we'll learn
-    :param gen_act_model: (str) the generative model that we'll learn. can be 'NN' or 'kNN'
-            for k nearest neighbor
+    :param gen_act_model: (str) the generative model that we'll learn.
     :param gamma: (float) discount factor
     :param learning_rate: (float) learning rate for adam optimizer
     :param buffer_size: (int) size of the replay buffer
     :param val_freq: (int) perform validation every `val_freq` epochs. set to 0 to avoid validation.
     :param batch_size: (int) size of a batched sampled from replay buffer for training
     :param target_network_update_freq: (int) update the target network every `target_network_update_freq` steps.
+    :param buffer_train_fraction: (float) how to split the experience buffer (relevant when using OPE)
+    :param gen_act_params: (dict) dictionary that defines how to build the generative model
     :param param_noise: (bool) Whether or not to apply noise to the parameters of the policy.
     :param verbose: (int) the verbosity level: 0 none, 1 training information, 2 tensorflow debug
     :param tensorboard_log: (str) the log location for tensorboard (if None, no logging)
@@ -51,7 +52,7 @@ class DBCQ(OffPolicyRLModel):
     :param n_cpu_tf_sess: (int) The number of threads for TensorFlow operations
         If None, the number of cpu of the current machine will be used.
     """
-    def __init__(self, policy, env, replay_buffer=None, gen_act_model=None ,gamma=0.99, learning_rate=5e-4,
+    def __init__(self, policy, env, replay_buffer=None, gen_act_policy=None ,gamma=0.99, learning_rate=5e-4,
                  val_freq=0, batch_size=32, target_network_update_freq=500,
                  buffer_train_fraction=0.8, gen_act_params = None,param_noise=False, act_distance_thresh=0.3,
                  n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
@@ -70,13 +71,14 @@ class DBCQ(OffPolicyRLModel):
         self.buffer_train_fraction = buffer_train_fraction
         self.gen_act_params = gen_act_params
         self.act_distance_th = act_distance_thresh
-        self.gen_act_model = gen_act_model
+        self.gen_act_policy = gen_act_policy
 
-        if self.gen_act_model == 'NN':      # if using neural net for the generative model, use the same policy func
-                                            # as the main policy
-            self.gen_act_model = self.policy
-        else:
-            raise TypeError('K nearest neighbor is not yet supported in DBCQ')
+        if self.gen_act_policy is None:
+            if self.gen_act_params['type'] == 'NN':      # if using neural net for the generative model, use the same policy func
+                                                         # as the main policy
+                self.gen_act_policy = partial(self.policy, **self.policy_kwargs)
+            else:
+                raise TypeError('K nearest neighbor is not yet supported in DBCQ')
 
         self.tensorboard_log = tensorboard_log
         self.full_tensorboard_log = full_tensorboard_log
@@ -134,7 +136,7 @@ class DBCQ(OffPolicyRLModel):
                 self.act, self._train_step, self.update_target, self.step_model, \
                 self.gen_act_model,self._gen_train_step = build_train(
                     q_func=partial(self.policy, **self.policy_kwargs),
-                    gen_act_policy=self.gen_act_model,
+                    gen_act_policy=self.gen_act_policy,
                     ob_space=self.observation_space,
                     ac_space=self.action_space,
                     optimizer=optimizer,
@@ -367,7 +369,7 @@ class DBCQ(OffPolicyRLModel):
             "target_network_update_freq": self.target_network_update_freq,
             "learning_rate": self.learning_rate,
             "gamma": self.gamma,
-            # "gen_act_model": self.gen_act_model,      # todo: uncommenting this line cause error. check it.
+            "gen_act_policy": self.gen_act_policy,
             "gen_act_params": self.gen_act_params,
             "buffer_train_fraction": self.buffer_train_fraction,
             # variables saved by parent class
