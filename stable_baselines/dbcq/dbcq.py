@@ -73,12 +73,6 @@ class DBCQ(OffPolicyRLModel):
         self.act_distance_th = act_distance_thresh
         self.gen_act_policy = gen_act_policy
 
-        if self.gen_act_policy is None:
-            if self.gen_act_params['type'] == 'NN':      # if using neural net for the generative model, use the same policy func
-                                                         # as the main policy
-                self.gen_act_policy = partial(self.policy, **self.policy_kwargs)
-            else:
-                raise TypeError('K nearest neighbor is not yet supported in DBCQ')
 
         self.tensorboard_log = tensorboard_log
         self.full_tensorboard_log = full_tensorboard_log
@@ -116,6 +110,13 @@ class DBCQ(OffPolicyRLModel):
         with SetVerbosity(self.verbose):
             assert not isinstance(self.action_space, gym.spaces.Box), \
                 "Error: DBCQ cannot output a gym.spaces.Box action space."
+            if self.gen_act_policy is None:
+                if self.gen_act_params['type'] == 'NN':
+                    # if using neural net for the generative model, use the same policy func
+                    # as the main policy
+                    self.gen_act_policy = partial(self.policy, **self.policy_kwargs)
+                else:
+                    raise TypeError('K nearest neighbor is not yet supported in DBCQ')
 
             # If the policy is wrap in functool.partial (e.g. to disable dueling)
             # unwrap it to check the class type
