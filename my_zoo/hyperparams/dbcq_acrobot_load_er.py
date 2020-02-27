@@ -45,7 +45,8 @@ env_params.env_id = 'acrobot'
 # policy_kwargs = None
 ##########################################################
 # the following 3 parameters are mutually exclusive
-batch_experience_buffer = '/home/gkoren2/share/Data/MLA/stbl/results/dbcq_acrobot-26-02-2020_14-40-07/1/er_acrobot_random.npz'
+# batch_experience_buffer = '/home/gkoren2/share/Data/MLA/stbl/results/dbcq_acrobot-27-02-2020_15-50-55/1/er_acrobot_random.npz'
+batch_experience_buffer = '/home/gkoren2/share/Data/MLA/stbl/results/dbcq_acrobot_load_expert-27-02-2020_17-47-19/1/er_acrobot_dbcq.npz'
 batch_experience_trained_agent = None       # agent to load to generate experience
 batch_expert_params = None      # this is also the default. if not None, we'll train the agent prior to recording
 # batch_expert_params = RandomAgentParams()

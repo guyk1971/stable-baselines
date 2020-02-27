@@ -130,7 +130,7 @@ def create_experience_buffer(experiment_params,output_dir):
             model = ALGOS[algo](env=env, **exp_agent_params)
 
     # prepare the path to save the expert experience buffer
-    exp_agent_algo = experiment_params.batch_expert_params.algorithm
+    exp_agent_algo = algo
     exp_buf_filename = 'er_'+experiment_params.env_params.env_id+'_'+exp_agent_algo
     exp_buf_filename = os.path.join(output_dir,exp_buf_filename)
     logger.info('Generating experience buffer with ' + exp_agent_algo)
