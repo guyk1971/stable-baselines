@@ -260,6 +260,7 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
         next_act_llr = tf.math.subtract(gen_next_act_logits,max_gen_next_act_logit)
         masked_double_q_values = tf.where(next_act_llr > tf.math.log(act_dist_thresh_ph), double_q_values,
                                           tf.constant(-np.inf)*tf.ones_like(double_q_values))
+        # masked_double_q_values = double_q_values        # ignore gen model constraint. just for debug...
         best_next_actions_masked = tf.argmax(masked_double_q_values, axis=1)
         q_tp1_best = tf.reduce_sum(target_policy.q_values * tf.one_hot(best_next_actions_masked, n_actions), axis=1)
         q_tp1_best_masked = (1.0 - done_mask_ph) * q_tp1_best
