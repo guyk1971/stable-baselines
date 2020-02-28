@@ -83,7 +83,7 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
     for t in range(n_timesteps_record):
     # while ep_idx < n_episodes:
         if isinstance(model, BaseRLModel):
-            action, state = model.predict(obs, state=state, mask=mask)
+            action, state = model.predict(obs, state=state, mask=mask,deterministic=False)
         else:
             action = model(obs)
         new_obs, reward, done, info = env.step(action)
