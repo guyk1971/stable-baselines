@@ -20,6 +20,7 @@ from stable_baselines.common import set_global_seeds
 from stable_baselines.dbcq.expert_dataset import generate_experience_traj
 from my_zoo.utils.utils import ALGOS
 from stable_baselines.dbcq.dbcq import DBCQ
+import shutil
 
 
 
@@ -242,7 +243,7 @@ def run_experiment(experiment_params):
 
         normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
         if normalize:
-            logger.warning("normalize observation or reward should be handled in batch mode")
+            logger.warn("normalize observation or reward should be handled in batch mode")
 
         trained_agent = experiment_params.trained_agent
         if trained_agent:
@@ -288,7 +289,9 @@ def main():
     module_path = 'my_zoo.hyperparams.'+args.exparams
     exp_params_module = importlib.import_module(module_path)
     experiment_params = getattr(exp_params_module,'experiment_params')
-
+    # set the path to the config file
+    hyperparams_folder_path=os.path.join(os.path.dirname(os.path.realpath(__file__)),'hyperparams')
+    exparams_path=os.path.join(hyperparams_folder_path,args.exparams+'.py')
     # set compute device
     if args.gpuid=='cpu':
         set_gpu_device('')
@@ -301,6 +304,8 @@ def main():
     exp_folder_name = args.exparams + '-' + time.strftime("%d-%m-%Y_%H-%M-%S")
     experiment_params.output_root_dir = os.path.join(experiment_params.output_root_dir,exp_folder_name)
     os.makedirs(experiment_params.output_root_dir, exist_ok=True)
+    # copy the configuration file
+    shutil.copy(exparams_path,experiment_params.output_root_dir)
 
     # glogger = create_logger(LOGGER_NAME,experiment_params)
     logger.configure(os.path.join(experiment_params.output_root_dir),['stdout', 'log'])
