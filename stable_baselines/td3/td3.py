@@ -5,15 +5,13 @@ import warnings
 import numpy as np
 import tensorflow as tf
 
-from stable_baselines.a2c.utils import total_episode_reward_logger
+from stable_baselines import logger
 from stable_baselines.common import tf_util, OffPolicyRLModel, SetVerbosity, TensorboardWriter
 from stable_baselines.common.vec_env import VecEnv
-from stable_baselines.common.math_util import unscale_action, scale_action
-from stable_baselines.deepq.replay_buffer import ReplayBuffer
-from stable_baselines.ppo2.ppo2 import safe_mean, get_schedule_fn
-from stable_baselines.sac.sac import get_vars
+from stable_baselines.common.math_util import safe_mean, unscale_action, scale_action
+from stable_baselines.common.schedules import get_schedule_fn
+from stable_baselines.common.buffers import ReplayBuffer
 from stable_baselines.td3.policies import TD3Policy
-from stable_baselines import logger
 
 
 class TD3(OffPolicyRLModel):
@@ -195,16 +193,16 @@ class TD3(OffPolicyRLModel):
                     # will be called only every n training steps,
                     # where n is the policy delay
                     policy_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_ph)
-                    policy_train_op = policy_optimizer.minimize(policy_loss, var_list=get_vars('model/pi'))
+                    policy_train_op = policy_optimizer.minimize(policy_loss, var_list=tf_util.get_trainable_vars('model/pi'))
                     self.policy_train_op = policy_train_op
 
                     # Q Values optimizer
                     qvalues_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_ph)
-                    qvalues_params = get_vars('model/values_fn/')
+                    qvalues_params = tf_util.get_trainable_vars('model/values_fn/')
 
                     # Q Values and policy target params
-                    source_params = get_vars("model/")
-                    target_params = get_vars("target/")
+                    source_params = tf_util.get_trainable_vars("model/")
+                    target_params = tf_util.get_trainable_vars("target/")
 
                     # Polyak averaging for target variables
                     self.target_ops = [
@@ -232,8 +230,8 @@ class TD3(OffPolicyRLModel):
                     tf.summary.scalar('learning_rate', tf.reduce_mean(self.learning_rate_ph))
 
                 # Retrieve parameters that must be saved
-                self.params = get_vars("model")
-                self.target_params = get_vars("target/")
+                self.params = tf_util.get_trainable_vars("model")
+                self.target_params = tf_util.get_trainable_vars("target/")
 
                 # Initialize Variables and target network
                 with self.sess.as_default():
@@ -279,6 +277,7 @@ class TD3(OffPolicyRLModel):
               log_interval=4, tb_log_name="TD3", reset_num_timesteps=True, replay_wrapper=None):
 
         new_tb_log = self._init_num_timesteps(reset_num_timesteps)
+        callback = self._init_callback(callback)
 
         if replay_wrapper is not None:
             self.replay_buffer = replay_wrapper(self.replay_buffer)
@@ -302,13 +301,10 @@ class TD3(OffPolicyRLModel):
             n_updates = 0
             infos_values = []
 
-            for step in range(total_timesteps):
-                if callback is not None:
-                    # Only stop training if return value is False, not when it is None. This is for backwards
-                    # compatibility with callbacks that have no return statement.
-                    if callback(locals(), globals()) is False:
-                        break
+            callback.on_training_start(locals(), globals())
+            callback.on_rollout_start()
 
+            for step in range(total_timesteps):
                 # Before training starts, randomly sample actions
                 # from a uniform distribution for better exploration.
                 # Afterwards, use the learned policy
@@ -331,6 +327,13 @@ class TD3(OffPolicyRLModel):
 
                 new_obs, reward, done, info = self.env.step(unscaled_action)
 
+                self.num_timesteps += 1
+
+                # Only stop training if return value is False, not when it is None. This is for backwards
+                # compatibility with callbacks that have no return statement.
+                if callback.on_step() is False:
+                    break
+
                 # Store transition in the replay buffer.
                 self.replay_buffer.add(obs, action, reward, new_obs, float(done))
                 obs = new_obs
@@ -344,10 +347,12 @@ class TD3(OffPolicyRLModel):
                     # Write reward per episode to tensorboard
                     ep_reward = np.array([reward]).reshape((1, -1))
                     ep_done = np.array([done]).reshape((1, -1))
-                    total_episode_reward_logger(self.episode_reward, ep_reward,
-                                                ep_done, writer, self.num_timesteps)
+                    tf_util.total_episode_reward_logger(self.episode_reward, ep_reward,
+                                                        ep_done, writer, self.num_timesteps)
 
                 if step % self.train_freq == 0:
+                    callback.on_rollout_end()
+
                     mb_infos_vals = []
                     # Update policy, critics and target networks
                     for grad_step in range(self.gradient_steps):
@@ -370,6 +375,9 @@ class TD3(OffPolicyRLModel):
                     if len(mb_infos_vals) > 0:
                         infos_values = np.mean(mb_infos_vals, axis=0)
 
+                    callback.on_rollout_start()
+
+
                 episode_rewards[-1] += reward
                 if done:
                     if self.action_noise is not None:
@@ -388,7 +396,6 @@ class TD3(OffPolicyRLModel):
                     mean_reward = round(float(np.mean(episode_rewards[-101:-1])), 1)
 
                 num_episodes = len(episode_rewards)
-                self.num_timesteps += 1
                 # Display training infos
                 if self.verbose >= 1 and done and log_interval is not None and len(episode_rewards) % log_interval == 0:
                     fps = int(step / (time.time() - start_time))
@@ -410,6 +417,8 @@ class TD3(OffPolicyRLModel):
                     logger.dumpkvs()
                     # Reset infos:
                     infos_values = []
+
+            callback.on_training_end()
             return self
 
     def action_probability(self, observation, state=None, mask=None, actions=None, logp=False):

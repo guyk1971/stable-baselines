@@ -15,11 +15,10 @@ from stable_baselines import logger
 from stable_baselines.common import tf_util, OffPolicyRLModel, SetVerbosity, TensorboardWriter
 from stable_baselines.common.vec_env import VecEnv
 from stable_baselines.common.mpi_adam import MpiAdam
+from stable_baselines.common.buffers import ReplayBuffer
 from stable_baselines.common.math_util import unscale_action, scale_action
-from stable_baselines.ddpg.policies import DDPGPolicy
 from stable_baselines.common.mpi_running_mean_std import RunningMeanStd
-from stable_baselines.a2c.utils import total_episode_reward_logger
-from stable_baselines.deepq.replay_buffer import ReplayBuffer
+from stable_baselines.ddpg.policies import DDPGPolicy
 
 
 def normalize(tensor, stats):
@@ -806,6 +805,7 @@ class DDPG(OffPolicyRLModel):
               reset_num_timesteps=True, replay_wrapper=None):
 
         new_tb_log = self._init_num_timesteps(reset_num_timesteps)
+        callback = self._init_callback(callback)
 
         if replay_wrapper is not None:
             self.replay_buffer = replay_wrapper(self.replay_buffer)
@@ -826,6 +826,8 @@ class DDPG(OffPolicyRLModel):
             eval_episode_rewards_history = deque(maxlen=100)
             episode_rewards_history = deque(maxlen=100)
             episode_successes = []
+
+
             with self.sess.as_default(), self.graph.as_default():
                 # Prepare everything.
                 self._reset()
@@ -852,11 +854,17 @@ class DDPG(OffPolicyRLModel):
                 epoch_qs = []
                 epoch_episodes = 0
                 epoch = 0
+
+                callback.on_training_start(locals(), globals())
+
                 while True:
                     for _ in range(log_interval):
+                        callback.on_rollout_start()
                         # Perform rollouts.
                         for _ in range(self.nb_rollout_steps):
+
                             if total_steps >= total_timesteps:
+                                callback.on_training_end()
                                 return self
 
                             # Predict next action.
@@ -880,14 +888,19 @@ class DDPG(OffPolicyRLModel):
 
                             new_obs, reward, done, info = self.env.step(unscaled_action)
 
+                            self.num_timesteps += 1
+
+                            if callback.on_step() is False:
+                                callback.on_training_end()
+                                return self
+
                             if writer is not None:
                                 ep_rew = np.array([reward]).reshape((1, -1))
                                 ep_done = np.array([done]).reshape((1, -1))
-                                total_episode_reward_logger(self.episode_reward, ep_rew, ep_done,
-                                                            writer, self.num_timesteps)
+                                tf_util.total_episode_reward_logger(self.episode_reward, ep_rew, ep_done,
+                                                                    writer, self.num_timesteps)
                             step += 1
                             total_steps += 1
-                            self.num_timesteps += 1
                             if rank == 0 and self.render:
                                 self.env.render()
                             episode_reward += reward
@@ -898,11 +911,6 @@ class DDPG(OffPolicyRLModel):
                             epoch_qs.append(q_value)
                             self._store_transition(obs, action, reward, new_obs, done)
                             obs = new_obs
-                            if callback is not None:
-                                # Only stop training if return value is False, not when it is None.
-                                # This is for backwards compatibility with callbacks that have no return statement.
-                                if callback(locals(), globals()) is False:
-                                    return self
 
                             if done:
                                 # Episode done.
@@ -922,6 +930,7 @@ class DDPG(OffPolicyRLModel):
                                 if not isinstance(self.env, VecEnv):
                                     obs = self.env.reset()
 
+                        callback.on_rollout_end()
                         # Train.
                         epoch_actor_losses = []
                         epoch_critic_losses = []
