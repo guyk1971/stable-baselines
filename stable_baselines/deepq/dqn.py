@@ -11,7 +11,6 @@ from stable_baselines.common.schedules import LinearSchedule
 from stable_baselines.common.buffers import ReplayBuffer, PrioritizedReplayBuffer
 from stable_baselines.deepq.build_graph import build_train
 from stable_baselines.deepq.policies import DQNPolicy
-from stable_baselines.a2c.utils import total_episode_reward_logger
 from tqdm import tqdm
 
 
@@ -193,7 +192,7 @@ class DQN(OffPolicyRLModel):
             reset = True
             obs = self.env.reset()
 
-            for _ in range(total_timesteps):
+            for _ in tqdm(range(total_timesteps)):
                 # Take action and update exploration to the newest value
                 kwargs = {}
                 if not self.param_noise:
