@@ -7,7 +7,8 @@ import numpy as np
 from stable_baselines.common.cmd_util import make_atari_env
 from stable_baselines.common.vec_env import VecFrameStack, SubprocVecEnv, VecNormalize, DummyVecEnv
 from stable_baselines.common.noise import AdaptiveParamNoiseSpec, NormalActionNoise, OrnsteinUhlenbeckActionNoise
-from stable_baselines.ppo2.ppo2 import constfn
+# from stable_baselines.ppo2.ppo2 import constfn
+from stable_baselines.common.schedules import get_schedule_fn
 
 try:
     import mpi4py
@@ -95,7 +96,7 @@ def parse_agent_params(hyperparams,n_actions,n_timesteps):
                 # Negative value: ignore (ex: for clipping)
                 if hyperparams[key] < 0:
                     continue
-                hyperparams[key] = constfn(float(hyperparams[key]))
+                hyperparams[key] = get_schedule_fn(float(hyperparams[key]))
             else:
                 raise ValueError('Invalid value for {}: {}'.format(key, hyperparams[key]))
 

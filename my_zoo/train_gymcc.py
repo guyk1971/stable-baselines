@@ -19,7 +19,6 @@ from stable_baselines.common import set_global_seeds
 from stable_baselines.common.cmd_util import make_atari_env
 from stable_baselines.common.vec_env import VecFrameStack, SubprocVecEnv, VecNormalize, DummyVecEnv
 from stable_baselines.common.noise import AdaptiveParamNoiseSpec, NormalActionNoise, OrnsteinUhlenbeckActionNoise
-from stable_baselines.ppo2.ppo2 import constfn
 import shutil
 
 try:
