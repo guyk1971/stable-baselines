@@ -123,7 +123,7 @@ def default_param_noise_filter(var):
     return False
 
 
-def build_act(q_func, gen_act_policy, ob_space, ac_space, stochastic_ph,update_eps_ph, act_dist_thresh_ph, sess):
+def build_act(q_func, ob_space, ac_space, stochastic_ph,update_eps_ph, sess):
     """
     Creates the act function:
     the act function is used for feeding the experience buffer while exploring - using epsilon greedy policy:
@@ -136,10 +136,8 @@ def build_act(q_func, gen_act_policy, ob_space, ac_space, stochastic_ph,update_e
     is np.random.choice(n_actions, prob=q_values) - no epsilon greedy.
 
     :param q_func: (DQNPolicy) the policy
-    :param gen_act_policy: (DQNPolicy) a generative model for the action
     :param ob_space: (Gym Space) The observation space of the environment
     :param ac_space: (Gym Space) The action space of the environment
-    :param act_dist_thresh_ph: (TensorFlow Tensor) placeholder for the threshold to mask out unlikely actions
     :param sess: (TensorFlow session) The current TensorFlow session
     :return: (function (TensorFlow Tensor, bool, float): TensorFlow Tensor, (TensorFlow Tensor, TensorFlow Tensor)
         act function to select and action given observation (See the top of the file for details),
@@ -158,8 +156,6 @@ def build_act(q_func, gen_act_policy, ob_space, ac_space, stochastic_ph,update_e
     stochastic_actions = tf.where(chose_random, random_actions, deterministic_actions)
     output_actions = tf.cond(stochastic_ph, lambda: stochastic_actions, lambda: deterministic_actions)
     update_eps_expr = eps.assign(tf.cond(update_eps_ph >= 0, lambda: update_eps_ph, lambda: eps))
-    # _act = tf_util.function(inputs=[policy.obs_ph,act_dist_thresh_ph],outputs=output_actions,
-    #                         givens={act_dist_thresh_ph: 1e-7})
 
     _act = tf_util.function(inputs=[policy.obs_ph, stochastic_ph, update_eps_ph],
                             outputs=output_actions,
@@ -168,10 +164,6 @@ def build_act(q_func, gen_act_policy, ob_space, ac_space, stochastic_ph,update_e
 
     def act(obs, stochastic=True, update_eps=-1):
         return _act(obs, stochastic, update_eps)
-
-
-    # def act(obs, act_dist_th=1e-7):
-    #     return _act(obs, act_dist_th)
 
     return act, obs_phs
 
@@ -217,9 +209,7 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
             print('Error: DBCQ doesnt yet support parameter noise. aborting')
             raise NotImplementedError
         else:
-            # act_f, obs_phs = build_act(q_func, gen_act_policy, ob_space, ac_space, act_dist_thresh_ph, sess)
-            act_f, obs_phs = build_act(q_func, gen_act_policy, ob_space, ac_space, stochastic_ph, update_eps_ph,
-                                       act_dist_thresh_ph, sess)
+            act_f, obs_phs = build_act(q_func, ob_space, ac_space, stochastic_ph, update_eps_ph, sess)
 
         # q network evaluation
         with tf.variable_scope("step_model", reuse=True, custom_getter=tf_util.outer_scope_getter("step_model")):
@@ -255,12 +245,13 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
 
         # the q values of gen_act_model has to be according to the observations. i.e. we feed the observations
         # and get the gen_act_model.q_values that represent the likelihood of each possible action in this state
+
         gen_next_act_logits = gen_act_model.q_values
         max_gen_next_act_logit = tf.reduce_max(gen_next_act_logits,axis=1,keepdims=True)
         next_act_llr = tf.math.subtract(gen_next_act_logits,max_gen_next_act_logit)
         masked_double_q_values = tf.where(next_act_llr > tf.math.log(act_dist_thresh_ph), double_q_values,
                                           tf.constant(-np.inf)*tf.ones_like(double_q_values))
-        # masked_double_q_values = double_q_values        # ignore gen model constraint. just for debug...
+        # masked_double_q_values = double_q_values        # no constraint. just like DQN
         best_next_actions_masked = tf.argmax(masked_double_q_values, axis=1)
         q_tp1_best = tf.reduce_sum(target_policy.q_values * tf.one_hot(best_next_actions_masked, n_actions), axis=1)
         q_tp1_best_masked = (1.0 - done_mask_ph) * q_tp1_best

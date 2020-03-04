@@ -6,8 +6,6 @@ import gym
 
 from stable_baselines import logger
 from stable_baselines.common import tf_util, OffPolicyRLModel, SetVerbosity, TensorboardWriter
-from stable_baselines.common.vec_env import VecEnv
-from stable_baselines.common.schedules import LinearSchedule
 from stable_baselines.dbcq.build_graph import build_train
 from stable_baselines.deepq.policies import DQNPolicy
 from stable_baselines.gail import ExpertDataset
