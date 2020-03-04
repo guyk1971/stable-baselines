@@ -29,7 +29,8 @@ class DBCQ(OffPolicyRLModel):
     :param policy: (DQNPolicy or str) The policy model to use (MlpPolicy, CnnPolicy, LnMlpPolicy, ...)
     :param env: (Gym environment or str) The environment to evaluate on (if registered in Gym, can be str)
                 Should be the same environment with which we created the buffer we learn from.
-                if env=None and val_freq>0 we need to do OPE. currently its not supported.
+                Note: the algorithm builds its model based on env.observation_space and env.action_space so the env
+                must be provided even if not used.
     :param replay_buffer: (ReplayBuffer) - the buffer from which we'll learn
     :param gen_act_model: (str) the generative model that we'll learn.
     :param gamma: (float) discount factor
@@ -63,7 +64,7 @@ class DBCQ(OffPolicyRLModel):
                                    seed=seed, n_cpu_tf_sess=n_cpu_tf_sess)
 
         self.param_noise = param_noise
-        self.val_freq = val_freq
+        self.val_freq = val_freq            # >0  for built in validation (i.e not through callback)
         self.batch_size = batch_size
         self.target_network_update_freq = target_network_update_freq
         self.learning_rate = learning_rate
@@ -91,10 +92,6 @@ class DBCQ(OffPolicyRLModel):
 
         if _init_setup_model:
             self.setup_model()
-
-        if self.env is None and self.val_freq>0:
-            print('env is not provided. validation is skipped.')
-            self.val_freq = 0       # currently we dont have Off Policy Evaluation so without env we skip validation
 
     def _get_pretrain_placeholders(self):
         policy = self.step_model
@@ -158,7 +155,6 @@ class DBCQ(OffPolicyRLModel):
                 self.summary = tf.summary.merge_all()
 
     def set_replay_buffer(self,replay_buffer):
-        # should I deep copy it ?
         self.replay_buffer=replay_buffer
 
     def _setup_learn(self):
@@ -172,10 +168,10 @@ class DBCQ(OffPolicyRLModel):
         self.dataset = ExperienceDataset(traj_data=self.replay_buffer,train_fraction=self.buffer_train_fraction,
                                          batch_size=self.batch_size,sequential_preprocessing=True)
 
-    def train_gen_act_model(self,val_interval=None):
+    def _train_gen_act_model(self,val_interval=None):
         # look at how the base model performs the pretraining. you should do the same here.
-        # todo: according to the type of the generative model, set the parameters accordingly
-        # currently we assume the generative model is neural network. need to add support in knn
+        # currently we assume the generative model is neural network.
+        # todo: add support in knn
         self.verbose = 1        # for debug
         if self.gen_act_params is None:
             n_epochs = 50
@@ -247,27 +243,21 @@ class DBCQ(OffPolicyRLModel):
     def learn(self, total_timesteps, callback=None, log_interval=10, tb_log_name="DBCQ",
               reset_num_timesteps=True, replay_wrapper=None):
         new_tb_log = self._init_num_timesteps(reset_num_timesteps)
-        if self.replay_buffer is None:
-            logger.warn('DBCQ needs full replay buffer to train on. returning without learning ')
-            return self
+        callback = self._init_callback(callback)
 
         with SetVerbosity(self.verbose), TensorboardWriter(self.graph, self.tensorboard_log, tb_log_name, new_tb_log) \
                 as writer:
             self._setup_learn()
             logger.info('training the generative model')
-            self.train_gen_act_model()
+            self._train_gen_act_model()
             logger.info('finished training the generative model')
             iter_cnt=0        # iterations counter
             ts=0
             epoch = 0   # epochs counter
             last_updadte_target_ts = 0
             n_minibatches = len(self.dataset.train_loader)
+            callback.on_training_start(locals(),globals())
             while ts < total_timesteps:
-                if callback is not None:
-                    # Only stop training if return value is False, not when it is None. This is for backwards
-                    # compatibility with callbacks that have no return statement.
-                    if callback(locals(), globals()) is False:
-                        break
                 # Full pass on the training set
                 for _ in range(n_minibatches):
                     obses_t, actions, rewards, obses_tp1, dones = self.dataset.get_next_batch('train')
@@ -293,6 +283,9 @@ class DBCQ(OffPolicyRLModel):
                     self.num_timesteps += len(obses_t)
                     iter_cnt+=1
                     ts += len(obses_t)
+                    # in DBCQ, the step is training step done on a minibatch of samples.
+                    if callback.on_step() is False:
+                        break
                 epoch += 1     # inc
                 # finished going through the data. summarize the epoch:
                 avg_epoch_loss = loss/n_minibatches
@@ -302,21 +295,19 @@ class DBCQ(OffPolicyRLModel):
                     # Update target network periodically.
                     self.update_target(sess=self.sess)
                     last_updadte_target_ts = ts
-
-
-
+                # the following validation can also be done via callback.
+                # in the future, will be used here only for OPE ?
                 if self.val_freq>0 and ((epoch+1) % self.val_freq) == 0:
                     if self.env is not None:
                         mean_reward,_ = online_policy_eval(self,self.env)
                     else:
                         raise RuntimeError("Off Policy Evaluation is not supported yet")
-
                 if self.verbose >= 1 and log_interval is not None:
                     logger.record_tabular("epoch", epoch)
                     logger.record_tabular("epoch_loss", avg_epoch_loss)
                     logger.record_tabular("mean 10 episode reward", mean_reward)
                     logger.dump_tabular()
-
+        callback.on_training_end()
         return self
 
     def predict(self, observation, state=None, mask=None, deterministic=True):

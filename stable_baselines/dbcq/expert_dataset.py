@@ -1,7 +1,7 @@
 import os
 import warnings
 from typing import Dict
-
+import pickle
 import cv2  # pytype:disable=import-error
 import numpy as np
 from gym import spaces
@@ -119,11 +119,14 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
     # statistics. since in this context we know these details, we overwrite the corresponding fields:
     numpy_dict['episode_returns'] = np.array(episode_returns)
     numpy_dict['episode_starts'] = np.array(episode_starts)
+    # the below should be uncommented if we plan to read the specs from the buffer
+    # numpy_dict['obs_space'] = env.observation_space
+    # numpy_dict['act_space'] = env.action_space
+    # if save_path is not None:
+    #     with open(save_path,'wb') as outfile:
+    #         pickle.dump(numpy_dict,outfile)
 
-
-    # for key, val in numpy_dict.items():
-    #     print(key, val.shape)
-
+    # assuming we save only the numpy arrays (not the obs_space and act_space)
     if save_path is not None:
         np.savez(save_path, **numpy_dict)
 
