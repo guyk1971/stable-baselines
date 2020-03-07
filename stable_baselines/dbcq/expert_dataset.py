@@ -62,11 +62,14 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
     replay_buffer = ReplayBuffer(n_timesteps_record)
 
     logger.info(title("generate expert trajectory",20))
-    logger.info("training expert start - {0} timesteps".format(n_timesteps_train))
-    if n_timesteps_train > 0 and isinstance(model, BaseRLModel):
-        model.learn(n_timesteps_train,tb_log_name='exp_gen_train')
 
-    logger.info("generate expert trajectory: training expert end")
+    if n_timesteps_train > 0 and isinstance(model, BaseRLModel):
+        logger.info("training expert start - {0} timesteps".format(n_timesteps_train))
+        model.learn(n_timesteps_train,tb_log_name='exp_gen_train')
+        logger.info("generate expert trajectory: training expert end")
+    else:
+        logger.info("skipped training expert")
+
     logger.info("start recording {0} expert steps".format(n_timesteps_record))
 
     episode_returns = []

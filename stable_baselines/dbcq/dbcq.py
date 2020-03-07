@@ -63,6 +63,7 @@ class DBCQ(OffPolicyRLModel):
 
         self.param_noise = param_noise
         self.val_freq = val_freq            # >0  for built in validation (i.e not through callback)
+        self.n_eval_episodes = 100          # number of episodes to evaluate each time we evaluate
         self.batch_size = batch_size
         self.target_network_update_freq = target_network_update_freq
         self.learning_rate = learning_rate
@@ -297,13 +298,21 @@ class DBCQ(OffPolicyRLModel):
                 # in the future, will be used here only for OPE ?
                 if self.val_freq>0 and ((epoch+1) % self.val_freq) == 0:
                     if self.env is not None:
-                        mean_reward,_ = online_policy_eval(self,self.env)
+                        mean_reward,std_reward = online_policy_eval(self,self.env,n_eval_episodes=self.n_eval_episodes)
+                        if writer is not None:
+                            with tf.variable_scope('evaluation',reuse=False):
+                                tbsum=tf.Summary()
+                                tbsum.value.add(tag='mean_{0}_episode_reward'.format(self.n_eval_episodes),
+                                                simple_value=mean_reward)
+                                tbsum.value.add(tag='std_{0}_episode_reward'.format(self.n_eval_episodes),
+                                                simple_value=std_reward)
+                                writer.add_summary(tbsum,self.num_timesteps)
                     else:
                         raise RuntimeError("Off Policy Evaluation is not supported yet")
                 if self.verbose >= 1 and log_interval is not None:
                     logger.record_tabular("epoch", epoch)
                     logger.record_tabular("epoch_loss", avg_epoch_loss)
-                    logger.record_tabular("mean 10 episode reward", mean_reward)
+                    logger.record_tabular('mean {0} episode reward'.format(self.n_eval_episodes), mean_reward)
                     logger.dump_tabular()
         callback.on_training_end()
         return self

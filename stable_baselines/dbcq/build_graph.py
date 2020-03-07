@@ -262,16 +262,23 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
         # compute RHS of bellman equation
         q_t_selected_target = rew_t_ph + gamma * q_tp1_best_masked
 
+        # normalize the target
+        q_t_selected_target_norm = tf.layers.batch_normalization(tf.reshape(q_t_selected_target,(-1,1)),
+                                                                 training=True,
+                                                                 # center=False,
+                                                                 trainable=False)
+
         # compute the error (potentially clipped)
-        td_error = q_t_selected - tf.stop_gradient(q_t_selected_target)
+        # td_error = q_t_selected - tf.stop_gradient(q_t_selected_target)
+        td_error = q_t_selected - tf.stop_gradient(tf.reshape(q_t_selected_target_norm,(-1,)))
         errors = tf_util.huber_loss(td_error)
         loss = tf.reduce_mean(errors)
         weighted_error = tf.reduce_mean(importance_weights_ph * errors)
 
+        tf.summary.scalar("q_selected_target",tf.reduce_mean(q_t_selected_target))
+        tf.summary.scalar("q_selected_target_norm", tf.reduce_mean(q_t_selected_target_norm))
         tf.summary.scalar("td_error", tf.reduce_mean(td_error))
-        tf.summary.scalar("avg_next_action_likelihood_ratio",tf.reduce_mean(tf.exp(next_act_llr)))
-        # tf.summary.histogram("next_action_LL_ratio",next_act_llr)
-        # tf.summary.scalar("wgt_error", weighted_error)
+        tf.summary.scalar("min_next_action_likelihood_ratio",tf.reduce_min(tf.exp(next_act_llr)))
         tf.summary.scalar("huber loss",loss)
 
         if full_tensorboard_log:
