@@ -8,8 +8,9 @@ from stable_baselines import logger
 from stable_baselines.common import explained_variance, ActorCriticRLModel, tf_util, SetVerbosity, TensorboardWriter
 from stable_baselines.common.runners import AbstractEnvRunner
 from stable_baselines.common.policies import ActorCriticPolicy, RecurrentActorCriticPolicy
-from stable_baselines.a2c.utils import total_episode_reward_logger
-
+from stable_baselines.common.schedules import get_schedule_fn
+from stable_baselines.common.tf_util import total_episode_reward_logger
+from stable_baselines.common.math_util import safe_mean
 
 class PPO2(ActorCriticRLModel):
     """
@@ -306,14 +307,17 @@ class PPO2(ActorCriticRLModel):
         cliprange_vf = get_schedule_fn(self.cliprange_vf)
 
         new_tb_log = self._init_num_timesteps(reset_num_timesteps)
+        callback = self._init_callback(callback)
 
         with SetVerbosity(self.verbose), TensorboardWriter(self.graph, self.tensorboard_log, tb_log_name, new_tb_log) \
                 as writer:
             self._setup_learn()
 
             t_first_start = time.time()
-
             n_updates = total_timesteps // self.n_batch
+
+            callback.on_training_start(locals(), globals())
+
             for update in range(1, n_updates + 1):
                 assert self.n_batch % self.nminibatches == 0, ("The number of minibatches (`nminibatches`) "
                                                                "is not a factor of the total number of samples "
@@ -326,9 +330,19 @@ class PPO2(ActorCriticRLModel):
                 lr_now = self.learning_rate(frac)
                 cliprange_now = self.cliprange(frac)
                 cliprange_vf_now = cliprange_vf(frac)
+
+                callback.on_rollout_start()
                 # true_reward is the reward without discount
-                obs, returns, masks, actions, values, neglogpacs, states, ep_infos, true_reward = self.runner.run()
-                self.num_timesteps += self.n_batch
+                rollout = self.runner.run(callback)
+                # Unpack
+                obs, returns, masks, actions, values, neglogpacs, states, ep_infos, true_reward = rollout
+
+                callback.on_rollout_end()
+
+                # Early stopping due to the callback
+                if not self.runner.continue_training:
+                    break
+
                 self.ep_info_buf.extend(ep_infos)
                 mb_loss_vals = []
                 if states is None:  # nonrecurrent version
@@ -389,12 +403,7 @@ class PPO2(ActorCriticRLModel):
                         logger.logkv(loss_name, loss_val)
                     logger.dumpkvs()
 
-                if callback is not None:
-                    # Only stop training if return value is False, not when it is None. This is for backwards
-                    # compatibility with callbacks that have no return statement.
-                    if callback(locals(), globals()) is False:
-                        break
-
+            callback.on_training_end()
             return self
 
     def save(self, save_path, cloudpickle=False):
@@ -441,7 +450,7 @@ class Runner(AbstractEnvRunner):
         self.lam = lam
         self.gamma = gamma
 
-    def run(self):
+    def _run(self):
         """
         Run a learning step of the model
 
@@ -471,6 +480,16 @@ class Runner(AbstractEnvRunner):
             if isinstance(self.env.action_space, gym.spaces.Box):
                 clipped_actions = np.clip(actions, self.env.action_space.low, self.env.action_space.high)
             self.obs[:], rewards, self.dones, infos = self.env.step(clipped_actions)
+
+            self.model.num_timesteps += self.n_envs
+
+            if self.callback is not None:
+                # Abort training early
+                if self.callback.on_step() is False:
+                    self.continue_training = False
+                    # Return dummy values
+                    return [None] * 9
+
             for info in infos:
                 maybe_ep_info = info.get('episode')
                 if maybe_ep_info is not None:
@@ -505,24 +524,6 @@ class Runner(AbstractEnvRunner):
         return mb_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs, mb_states, ep_infos, true_reward
 
 
-def get_schedule_fn(value_schedule):
-    """
-    Transform (if needed) learning rate and clip range
-    to callable.
-
-    :param value_schedule: (callable or float)
-    :return: (function)
-    """
-    # If the passed schedule is a float
-    # create a constant function
-    if isinstance(value_schedule, (float, int)):
-        # Cast to float to avoid errors
-        value_schedule = constfn(float(value_schedule))
-    else:
-        assert callable(value_schedule)
-    return value_schedule
-
-
 # obs, returns, masks, actions, values, neglogpacs, states = runner.run()
 def swap_and_flatten(arr):
     """
@@ -533,29 +534,3 @@ def swap_and_flatten(arr):
     """
     shape = arr.shape
     return arr.swapaxes(0, 1).reshape(shape[0] * shape[1], *shape[2:])
-
-
-def constfn(val):
-    """
-    Create a function that returns a constant
-    It is useful for learning rate schedule (to avoid code duplication)
-
-    :param val: (float)
-    :return: (function)
-    """
-
-    def func(_):
-        return val
-
-    return func
-
-
-def safe_mean(arr):
-    """
-    Compute the mean of an array if there is at least one element.
-    For empty array, return nan. It is used for logging only.
-
-    :param arr: (np.ndarray)
-    :return: (float)
-    """
-    return np.nan if len(arr) == 0 else np.mean(arr)

@@ -43,7 +43,7 @@ class AgentParams:
     def __init__(self):
 
         # these are parameters that should be derived from the experiment params
-        self.verbose = 0
+        self.verbose = 1
         self.tensorboard_log = None
         self._init_setup_model = True
         self.full_tensorboard_log = False
@@ -53,6 +53,11 @@ class AgentParams:
     def as_dict(self):
         return vars(self)
 
+class RandomAgentParams(AgentParams):
+    def __init__(self):
+        super(RandomAgentParams, self).__init__()
+        self.algorithm = 'random'
+        return
 
 class DQNAgentParams(AgentParams):
     """
@@ -337,6 +342,50 @@ class TD3AgentParams(AgentParams):
         return
 
 
+class DBCQAgentParams(AgentParams):
+    """
+    Parameters for DQN agent
+    The agent gets the following values in its construction:
+    policy,env
+    gamma = 0.99, learning_rate = 5e-4, buffer_size = 50000, exploration_fraction = 0.1,
+    exploration_final_eps = 0.02, exploration_initial_eps = 1.0, train_freq = 1, batch_size = 32, double_q = True,
+    learning_starts = 1000, target_network_update_freq = 500, prioritized_replay = False,
+    prioritized_replay_alpha = 0.6, prioritized_replay_beta0 = 0.4, prioritized_replay_beta_iters = None,
+    prioritized_replay_eps = 1e-6, param_noise = False,
+
+    n_cpu_tf_sess = None, verbose = 0, tensorboard_log = None, _init_setup_model = True, policy_kwargs = None,
+    full_tensorboard_log = False, seed = None
+    """
+    def __init__(self):
+        super(DBCQAgentParams, self).__init__()
+        # Default parameters for DQN Agent
+        self.algorithm = 'dbcq'
+        self.policy = 'MlpPolicy'    # or 'CnnPolicy' or 'CustomDQNPolicy' - the main policy that we train
+        # self.buffer_size = 50000
+        self.val_freq = 1                       # num epochs between evaluations
+        self.learning_rate = 1e-4
+        self.target_network_update_freq = 1   # number of epochs between target network updates
+        self.param_noise = False
+        self.act_distance_thresh = 0.3          # if gen_act_policy is Neural Net - corresponds to the threshold tau
+                                                # i.e. actions with likelihood ratio larger than threshold will be
+                                                # considered as candidates
+                                                # if gen_act_policy is KNN - the max distance from nearest neighbor
+                                                # s.t. actions that are farther will be thrown
+        # other default params
+        self.gamma = 0.99
+        self.batch_size = 32
+        self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
+                                                # the rest (20%) will be used for Off policy evaluation
+        # parameters of the generative model for actions
+        self.gen_act_policy = None               # 'KNN' for K nearest neighbors, 'NN' for Neural Net
+                                                # if 'NN' the agent will use the same type of policy for the generative model
+        self.gen_act_params = {'type': 'NN', 'n_epochs': 50, 'lr': 1e-3, 'train_frac': 0.7, 'batch_size': 64}
+        # self.gen_act_params = {'type':'KNN','size': 1000}  # knn parameters
+        self.n_cpu_tf_sess = None
+        self.policy_kwargs = None
+        return
+
+
 #################################
 # Experiment Params
 class ExperimentParams:
@@ -354,22 +403,57 @@ class ExperimentParams:
         self.log_date_format = '%y-%m-%d %H:%M:%S'
         self.verbose = 1
 
-
-
         ####### Env #######
         self.n_envs = 1
         self.env_params = None
 
-        ####### Env #######
-        self.policy = None
-
-
         ###### Agent #######
-        self.trained_agent=None
-        self.agent_params = None        # should be class of agent params e.g. DQNAgentParams()
+        # (pretrain_dataset,pretrain_expert_agent) are related as follows:
+        # dataset = None, expert_agent = None : no pretraing
+        # dataset != None, expert_agent = None : pretrain from existing buffer
+        # dataset = None, expert_agent != None : Illegal option. agent must have path to save
+        # dataset != None, expert_agent != None : use expert to write to pretrain_dataset and then pretrain
+        self.pretrain_dataset = None            # path to experience buffer that can be wrapped by ExpertData
+                                                # if None, there's no pre-train
+                                                # else: either load the dataset or write to this path
+        self.pretrain_expert_params = None   # parameters of agent to generate experience for pretrain
+        self.pretrain_expert_n_timesteps = 1e5  # number of timesteps to train the expert before it generates the data
+        self.pretrain_dataset_n_episodes = 100  # number of episode to generate in the pretrain buffer
+        # given we do pretraining, use the following for pretrain (behavioral cloning)
+        self.pretrain_epochs = 10               # number of epochs to train on the expert data
+        self.pretrain_lr = 1e-4
+
+        # trained agent - if we want to continue training from a saved agent
+        self.trained_agent=None         # path to main pretrained agent - to continue training
+        self.agent_params = None        # agent that trains the main policy.
+                                        # should be class of agent params e.g. DQNAgentParams()
         # training params
-        self.n_timesteps = 1e5
-        self.log_interval = -1  # using algorithm default
+        self.n_timesteps = 1e5          # number of timesteps to train main policy
+        self.log_interval = -1          # using algorithm default
+
+        ###### BatchRL #######
+        self.batch_experience_trained_agent = None      # path to trained agent to generate experience for batch rl
+                                                        # if not None, will load it to generate the buffer
+                                                        # currently not supported. SHOULD BE 'None' !
+        # the following combinations for (batch_expert_params,batch_experiece_buffer)
+        # (DQN,None) - will generate buffer from scratch using DQN agent and save to file 'dataset_<env_id>_<agent_id>'
+        # (None,Buf) - load the buffer from file (convert to ExpertData if needed)
+        # (None,None) - no batch mode. Illegal if the agent is one of batch mode agents.
+        # Note that we currently have only one agent for batch mode : DBCQ.
+        # if we want DQN to train on batch mode, we need to change it --> create a distinct version.
+        self.batch_expert_params = None         # can be any AgentParams from above (assuming coherency in obs,act)
+        self.batch_experience_buffer = None     # path to experience buffer we'll learn from
+                                                # name template: experience_<env-id>_<agent-id>.npy
+        self.batch_expert_n_timesteps_train = int(1e5)      # number of timesteps to train the expert before starting to record
+        self.batch_expert_steps_to_record = int(5e4)        # number of episodes to record into the experience buffer
+
+        self.online_evaluation = True           # whether to use evaluation environment
+        self.offline_evaluation_split = 0.0     # if >0 perform offline evaluation on this fraction of experience
+                                                # e.g. if 0.2, train on 80%, evaluate on 20%
+
+
+
+
 
         ###### Hyper Parameters Optimization ######
         self.hp_optimize = False

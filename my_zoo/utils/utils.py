@@ -23,6 +23,7 @@ from stable_baselines.sac.policies import FeedForwardPolicy as SACPolicy
 from stable_baselines.bench import Monitor
 from stable_baselines import logger
 from stable_baselines import PPO2, A2C, ACER, ACKTR, DQN, HER, SAC, TD3
+from stable_baselines.dbcq.dbcq import DBCQ
 # DDPG and TRPO require MPI to be installed
 if mpi4py is None:
     DDPG, TRPO = None, None
@@ -44,7 +45,8 @@ ALGOS = {
     'sac': SAC,
     'ppo2': PPO2,
     'trpo': TRPO,
-    'td3': TD3
+    'td3': TD3,
+    'dbcq':DBCQ
 }
 
 
@@ -72,9 +74,6 @@ class CustomSACPolicy(SACPolicy):
                                               feature_extraction="mlp")
 
 
-register_policy('CustomSACPolicy', CustomSACPolicy)
-register_policy('CustomDQNPolicy', CustomDQNPolicy)
-register_policy('CustomMlpPolicy', CustomMlpPolicy)
 
 
 def flatten_dict_observations(env):

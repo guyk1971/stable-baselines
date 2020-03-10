@@ -45,59 +45,6 @@ def set_gpu_device(gpuid='0'):
         tf.config.experimental.set_visible_devices(cpus[0],'CPU')
         print("working on CPU !")
     return
-#########################
-# Logger                #
-#########################
-class MyLogger:
-    def __init__(self,name,
-                 filename=None,
-                 level=logging.INFO,
-                 format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-                 ):
-        self.name = name
-        self.filename = filename
-        self.level = level
-        self.format = format
-
-        self.logger = logging.getLogger(self.name)
-        self.logger.setLevel(self.level)
-        ch = logging.StreamHandler()
-        ch.setLevel(level)
-        self.formatter_console = logging.Formatter(self.format, datefmt='%m/%d/%Y %H:%M:%S')
-        ch.setFormatter(self.formatter_console)
-        self.logger.addHandler(ch)
-
-        if self.filename:
-            self.add_log_file(filename)
-        self.logger.propagate = False
-
-    def add_log_file(self,filename,level=None):
-        fh = logging.FileHandler(filename)
-        file_level = level or self.level
-        fh.setLevel(file_level)
-        fh.setFormatter(self.formatter_console)
-        self.logger.addHandler(fh)
-
-    def get_logger(self):
-        return self.logger
-
-
-class StreamToLogger(object):
-    """
-    Fake file-like stream object that redirects writes to a logger instance.
-    """
-
-    def __init__(self, logger, log_level=logging.INFO):
-        self.logger = logger
-        self.log_level = log_level
-        self.linebuf = ''
-
-    def write(self, buf):
-        for line in buf.rstrip().splitlines():
-            self.logger.log(self.log_level, line.rstrip())
-
-    def flush(self):
-        pass
 
 def title(msg,n,ch='='):
     return "\n\n"+ch*n+" "+msg+" "+ch*n

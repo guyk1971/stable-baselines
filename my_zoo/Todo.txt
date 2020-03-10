@@ -1,4 +1,13 @@
-train_gymcc:
- -  the configuration scripts currently include a string for the scheduling. it can also include the function directly
-    all we need to do is to prepare a default file for each algorithm and import the relevant modules that will allow
-    to define things like linear scheduling or the algorithm itself.
+train_gymcc --> train_on_env
+train_batch_rl --> train_on_batch
+
+refactor base class to include models for batch mode:
+                    BaseRLModel
+                        |
+             -------------------------
+             |                       |
+        OffPolicyRLModel        OffPolicyBatchRLModel
+
+The OffPolicyBatchRLModel will get experience buffer in its learn method and if env is not provided, will get
+observation_space and action_space in its constructor
+

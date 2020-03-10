@@ -5,7 +5,7 @@ from my_zoo.hyperparams.default_config import PPO2AgentParams,ExperimentParams, 
 # Env                                                    #
 ##########################################################
 env_params = EnvParams()
-env_params.env_id = 'acrobot'
+env_params.env_id = 'mntcar'
 env_params.norm_obs = True
 env_params.norm_reward = True
 
@@ -42,6 +42,8 @@ agent_params.n_steps = 16
 agent_params.nminibatches = 1
 agent_params.lam = 0.98
 agent_params.ent_coef=0.0
+agent_params.cliprange = 0.2
+
 ##########################################################
 # Experiment                                             #
 ##########################################################

@@ -553,6 +553,12 @@ class Logger(object):
         for fmt in self.output_formats:
             fmt.close()
 
+    def add_output_formats(self,output_formats):
+        _ = [self.output_formats.append(f) for f in output_formats if f not in self.output_formats]
+
+    def remove_output_formats(self,output_formats):
+        _ = [self.output_formats.remove(f) for f in output_formats if f in self.output_formats]
+
     # Misc
     # ----------------------------------------
     def _do_log(self, args):
@@ -564,6 +570,9 @@ class Logger(object):
         for fmt in self.output_formats:
             if isinstance(fmt, SeqWriter):
                 fmt.writeseq(map(str, args))
+
+
+
 
 
 Logger.DEFAULT = Logger.CURRENT = Logger(folder=None, output_formats=[HumanOutputFormat(sys.stdout)])
@@ -599,6 +608,7 @@ def configure(folder=None, format_strs=None):
     log('Logging to %s' % folder)
 
 
+
 def reset():
     """
     reset the current logger
@@ -607,6 +617,31 @@ def reset():
         Logger.CURRENT.close()
         Logger.CURRENT = Logger.DEFAULT
         log('Reset logger')
+
+
+class ScopedOutputConfig(object):
+    def __init__(self, folder=None, format_strs=None,log_suffix=''):
+        """
+        Class for using context manager while logging
+
+        usage:
+        with ScopedOutputConfig(folder=None, format_strs=None,log_suffix=''):
+            {code}
+
+        :param folder: (str) the logging folder
+        :param format_strs: ([str]) the list of output logging format
+        """
+        self.dir = folder
+        self.format_strs = format_strs
+        self.log_suffix=log_suffix
+        self.out_formats = None
+
+    def __enter__(self):
+        self.out_formats = [make_output_format(f, self.dir, self.log_suffix) for f in self.format_strs]
+        Logger.CURRENT.add_output_formats(self.out_formats)
+
+    def __exit__(self, *args):
+        Logger.CURRENT.remove_output_formats(self.out_formats)
 
 
 class ScopedConfigure(object):
@@ -662,7 +697,7 @@ def _demo():
     with ScopedConfigure(None, None):
         info("^^^ should see b = 33.3")
 
-    with ScopedConfigure("/tmp/test-logger/", ["json"]):
+    with ScopedConfigure("/tmp/test-logger/", ["csv"]):
         logkv("b", -2.5)
         dumpkvs()
 
