@@ -10,7 +10,7 @@ from stable_baselines.common.base_class import BaseRLModel
 from stable_baselines.common.vec_env import VecEnv, VecFrameStack
 from stable_baselines.common.base_class import _UnvecWrapper
 from my_zoo.utils.common import title
-
+from tqdm import tqdm
 from stable_baselines.dbcq.replay_buffer import ReplayBuffer
 
 def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=0,
@@ -83,27 +83,24 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
     state, mask = None, None
     if is_vec_env:
         mask = [True for _ in range(env.num_envs)]
-    for t in range(n_timesteps_record):
-    # while ep_idx < n_episodes:
+    for t in tqdm(range(n_timesteps_record)):
         if isinstance(model, BaseRLModel):
             action, state = model.predict(obs, state=state, mask=mask,deterministic=False)
         else:
             action = model(obs)
         new_obs, reward, done, info = env.step(action)
-        # obs, reward, done, _ = env.step(action)
 
-        # Use only first env
+        # Note : we save to the experience buffer as if it is not a vectorized env since anyway we
+        #        use only first env
         if is_vec_env:
             mask = [done[0] for _ in range(env.num_envs)]
             action = np.array([action[0]])
-            reward = np.array([reward[0]])
+            reward = np.array(reward[0])
             done = np.array([done[0]])
-
-        # Store transition in the replay buffer.
-        replay_buffer.add(obs, action, reward, new_obs, float(done))
+            replay_buffer.add(obs[0],action[0],reward,new_obs[0],float(done[0]))
+        else: # Store transition in the replay buffer.
+            replay_buffer.add(obs, action, reward, new_obs, float(done))
         obs = new_obs
-        # actions.append(action)
-        # rewards.append(reward)
         episode_starts.append(done)
         reward_sum += reward
         if done:
@@ -122,12 +119,6 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
     # statistics. since in this context we know these details, we overwrite the corresponding fields:
     numpy_dict['episode_returns'] = np.array(episode_returns)
     numpy_dict['episode_starts'] = np.array(episode_starts)
-    # the below should be uncommented if we plan to read the specs from the buffer
-    # numpy_dict['obs_space'] = env.observation_space
-    # numpy_dict['act_space'] = env.action_space
-    # if save_path is not None:
-    #     with open(save_path,'wb') as outfile:
-    #         pickle.dump(numpy_dict,outfile)
 
     # assuming we save only the numpy arrays (not the obs_space and act_space)
     if save_path is not None:

@@ -7,6 +7,8 @@ from zoo.utils import CustomDQNPolicy
 ##########################################################
 env_params = EnvParams()
 env_params.env_id = 'mntcar'
+# env_params.norm_obs = True
+# env_params.norm_reward = True
 
 #################
 # Policy        #
@@ -41,9 +43,11 @@ policy = CustomDQNPolicy
 agent_params = DQNAgentParams()
 # here we can change the various parameters - for example, we can change the batch size
 agent_params.policy = policy
-agent_params.learning_rate = 1e-3
-agent_params.exploration_final_eps= 0.1
-agent_params.param_noise = True
+agent_params.exploration_fraction = 0.5
+agent_params.learning_rate = 1e-4
+agent_params.exploration_final_eps = 0.1
+# agent_params.param_noise = True
+agent_params.batch_size = 128
 
 
 
@@ -51,7 +55,7 @@ agent_params.param_noise = True
 # Experiment                                             #
 ##########################################################
 experiment_params = ExperimentParams()
-experiment_params.n_timesteps = 1e5
+experiment_params.n_timesteps = 1e6
 experiment_params.env_params = env_params
 experiment_params.agent_params = agent_params
 experiment_params.name = __name__.split('.')[-1]
