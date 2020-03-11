@@ -8,20 +8,15 @@ from stable_baselines import logger
 from stable_baselines.common import tf_util, OffPolicyRLModel, SetVerbosity, TensorboardWriter
 from stable_baselines.common.vec_env import VecEnv
 from stable_baselines.common.schedules import LinearSchedule
+from stable_baselines.common.buffers import ReplayBuffer, PrioritizedReplayBuffer
 from stable_baselines.qrdqn.build_graph import build_train
-from stable_baselines.qrdqn.replay_buffer import ReplayBuffer, PrioritizedReplayBuffer
-from stable_baselines.qrdqn.policies import *
-from stable_baselines.a2c.utils import total_episode_reward_logger
+from stable_baselines.qrdqn.policies import QRDQNPolicy,MlpPolicy, CnnPolicy, LnCnnPolicy,LnMlpPolicy
+from tqdm import tqdm
 
 
-
-
-##########################################
-# Agent
-##########################################
 class QRDQN(OffPolicyRLModel):
     """
-    The QRDQN model class.
+    The DQN model class.
     DQN paper: https://arxiv.org/abs/1312.5602
     Dueling DQN: https://arxiv.org/abs/1511.06581
     Double-Q Learning: https://arxiv.org/abs/1509.06461
@@ -62,7 +57,7 @@ class QRDQN(OffPolicyRLModel):
     :param n_cpu_tf_sess: (int) The number of threads for TensorFlow operations
         If None, the number of cpu of the current machine will be used.
     """
-    def __init__(self, policy, env, n_atoms=50,gamma=0.99, learning_rate=5e-4, buffer_size=50000, exploration_fraction=0.1,
+    def __init__(self, policy, env, n_atoms=50, gamma=0.99, learning_rate=5e-4, buffer_size=50000, exploration_fraction=0.1,
                  exploration_final_eps=0.02, exploration_initial_eps=1.0, train_freq=1, batch_size=32, double_q=True,
                  learning_starts=1000, target_network_update_freq=500, prioritized_replay=False,
                  prioritized_replay_alpha=0.6, prioritized_replay_beta0=0.4, prioritized_replay_beta_iters=None,
@@ -71,7 +66,7 @@ class QRDQN(OffPolicyRLModel):
                  _init_setup_model=True, policy_kwargs=None, full_tensorboard_log=False, seed=None):
 
         # TODO: replay_buffer refactoring
-        super(QRDQN, self).__init__(policy=policy, env=env, replay_buffer=None, verbose=verbose, policy_base=QRDQNPolicy,
+        super(QRDQN, self).__init__(policy=policy, env=env, replay_buffer=None, verbose=verbose, policy_base=DQNPolicy,
                                   requires_vec_env=False, policy_kwargs=policy_kwargs, seed=seed, n_cpu_tf_sess=n_cpu_tf_sess)
 
         self.param_noise = param_noise
@@ -94,6 +89,7 @@ class QRDQN(OffPolicyRLModel):
         self.full_tensorboard_log = full_tensorboard_log
         self.double_q = double_q
         self.n_atoms = n_atoms
+
 
         self.graph = None
         self.sess = None
@@ -142,18 +138,16 @@ class QRDQN(OffPolicyRLModel):
                 optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
 
                 self.act, self._train_step, self.update_target, self.step_model = build_train(
-                    q_func=self.policy,
+                    q_func=partial(self.policy, **self.policy_kwargs),
                     ob_space=self.observation_space,
                     ac_space=self.action_space,
                     optimizer=optimizer,
                     gamma=self.gamma,
-                    n_atoms=self.n_atoms,
                     grad_norm_clipping=10,
                     param_noise=self.param_noise,
                     sess=self.sess,
                     full_tensorboard_log=self.full_tensorboard_log,
-                    double_q=self.double_q,
-                    policy_kwargs=self.policy_kwargs
+                    double_q=self.double_q
                 )
                 self.proba_step = self.step_model.proba_step
                 self.params = tf_util.get_trainable_vars("qrdqn")
@@ -164,10 +158,11 @@ class QRDQN(OffPolicyRLModel):
 
                 self.summary = tf.summary.merge_all()
 
-    def learn(self, total_timesteps, callback=None, log_interval=100, tb_log_name="QRDQN",
+    def learn(self, total_timesteps, callback=None, log_interval=10, tb_log_name="QRDQN",
               reset_num_timesteps=True, replay_wrapper=None):
 
         new_tb_log = self._init_num_timesteps(reset_num_timesteps)
+        callback = self._init_callback(callback)
 
         with SetVerbosity(self.verbose), TensorboardWriter(self.graph, self.tensorboard_log, tb_log_name, new_tb_log) \
                 as writer:
@@ -198,15 +193,14 @@ class QRDQN(OffPolicyRLModel):
 
             episode_rewards = [0.0]
             episode_successes = []
-            obs = self.env.reset()
-            reset = True
 
-            for _ in range(total_timesteps):
-                if callback is not None:
-                    # Only stop training if return value is False, not when it is None. This is for backwards
-                    # compatibility with callbacks that have no return statement.
-                    if callback(locals(), globals()) is False:
-                        break
+            callback.on_training_start(locals(), globals())
+            callback.on_rollout_start()
+
+            reset = True
+            obs = self.env.reset()
+
+            for _ in tqdm(range(total_timesteps)):
                 # Take action and update exploration to the newest value
                 kwargs = {}
                 if not self.param_noise:
@@ -229,6 +223,13 @@ class QRDQN(OffPolicyRLModel):
                 env_action = action
                 reset = False
                 new_obs, rew, done, info = self.env.step(env_action)
+
+                self.num_timesteps += 1
+
+                # Stop training if return value is False
+                if callback.on_step() is False:
+                    break
+
                 # Store transition in the replay buffer.
                 self.replay_buffer.add(obs, action, rew, new_obs, float(done))
                 obs = new_obs
@@ -236,8 +237,8 @@ class QRDQN(OffPolicyRLModel):
                 if writer is not None:
                     ep_rew = np.array([rew]).reshape((1, -1))
                     ep_done = np.array([done]).reshape((1, -1))
-                    total_episode_reward_logger(self.episode_reward, ep_rew, ep_done, writer,
-                                                self.num_timesteps)
+                    tf_util.total_episode_reward_logger(self.episode_reward, ep_rew, ep_done, writer,
+                                                        self.num_timesteps)
 
                 episode_rewards[-1] += rew
                 if done:
@@ -254,6 +255,8 @@ class QRDQN(OffPolicyRLModel):
                 can_sample = self.replay_buffer.can_sample(self.batch_size)
                 if can_sample and self.num_timesteps > self.learning_starts \
                         and self.num_timesteps % self.train_freq == 0:
+
+                    callback.on_rollout_end()
                     # Minimize the error in Bellman's equation on a batch sampled from replay buffer.
                     # pytype:disable=bad-unpacking
                     if self.prioritized_replay:
@@ -290,6 +293,8 @@ class QRDQN(OffPolicyRLModel):
                         assert isinstance(self.replay_buffer, PrioritizedReplayBuffer)
                         self.replay_buffer.update_priorities(batch_idxes, new_priorities)
 
+                    callback.on_rollout_start()
+
                 if can_sample and self.num_timesteps > self.learning_starts and \
                         self.num_timesteps % self.target_network_update_freq == 0:
                     # Update target network periodically.
@@ -311,8 +316,7 @@ class QRDQN(OffPolicyRLModel):
                                           int(100 * self.exploration.value(self.num_timesteps)))
                     logger.dump_tabular()
 
-                self.num_timesteps += 1
-
+        callback.on_training_end()
         return self
 
     def predict(self, observation, state=None, mask=None, deterministic=True):
@@ -388,9 +392,3 @@ class QRDQN(OffPolicyRLModel):
         params_to_save = self.get_parameters()
 
         self._save_to_file(save_path, data=data, params=params_to_save, cloudpickle=cloudpickle)
-
-
-
-
-
-

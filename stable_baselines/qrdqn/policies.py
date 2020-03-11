@@ -3,17 +3,20 @@ import tensorflow.contrib.layers as tf_layers
 import numpy as np
 from gym.spaces import Discrete
 
-from stable_baselines.common.policies import BasePolicy, nature_cnn, register_policy
+from stable_baselines.common.policies import BasePolicy, nature_cnn
+
+def quant_to_q(p_values):
+    return tf.reduce_mean(p_values, axis=-1)
 
 
 class QRDQNPolicy(BasePolicy):
     """
-    Policy object that implements a QRDQN policy
+    Policy object that implements a DQN policy
 
     :param sess: (TensorFlow session) The current TensorFlow session
     :param ob_space: (Gym Space) The observation space of the environment
     :param ac_space: (Gym Space) The action space of the environment
-    :param n_atoms: (int) The number of atoms (quantiles) in the distribution approximation
+    :param n_atoms: (int) the number of atoms (quantiles) in the distribution approximation
     :param n_env: (int) The number of environments to run
     :param n_steps: (int) The number of steps to run for each environment
     :param n_batch: (int) The number of batch to run (n_envs * n_steps)
@@ -25,7 +28,7 @@ class QRDQNPolicy(BasePolicy):
     """
 
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, scale=False,
-                 obs_phs=None, dueling=False, n_atoms=50):
+                 obs_phs=None, dueling=False,n_atoms=50):
         # DQN policies need an override for the obs placeholder, due to the architecture of the code
         super(QRDQNPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=reuse, scale=scale,
                                         obs_phs=obs_phs)
@@ -34,8 +37,9 @@ class QRDQNPolicy(BasePolicy):
         self.n_atoms = n_atoms
         self.value_fn = None
         self.q_values = None
-        self.dueling = dueling          # Currently not supported with QRDQN
-        assert not dueling, "Dueling is not supported with Quantile Regression DQN"
+        self.dueling = dueling      # currently not supported by QRDQN
+        assert not dueling, "Dueling is not aupported with QRDQN"
+
 
     def _setup_init(self):
         """
@@ -43,8 +47,7 @@ class QRDQNPolicy(BasePolicy):
         """
         with tf.variable_scope("output", reuse=True):
             assert self.q_values is not None
-            # todo: add support in quantile output
-            self.policy_proba = tf.nn.softmax(self.q_values)
+            self.policy_proba = tf.nn.softmax(quant_to_q(self.q_values))
 
     def step(self, obs, state=None, mask=None, deterministic=True):
         """
@@ -72,7 +75,7 @@ class QRDQNPolicy(BasePolicy):
 
 class FeedForwardPolicy(QRDQNPolicy):
     """
-    Policy object that implements a QRDQN policy, using a feed forward neural network.
+    Policy object that implements a DQN policy, using a feed forward neural network.
 
     :param sess: (TensorFlow session) The current TensorFlow session
     :param ob_space: (Gym Space) The observation space of the environment
@@ -95,7 +98,7 @@ class FeedForwardPolicy(QRDQNPolicy):
 
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, layers=None,
                  cnn_extractor=nature_cnn, feature_extraction="cnn",
-                 obs_phs=None, layer_norm=False, dueling=False, act_fun=tf.nn.relu,n_atoms=50, **kwargs):
+                 obs_phs=None, layer_norm=False, dueling=False, act_fun=tf.nn.relu, n_atoms=50, **kwargs):
         super(FeedForwardPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps,
                                                 n_batch, dueling=dueling, n_atoms=n_atoms,reuse=reuse,
                                                 scale=(feature_extraction == "cnn"), obs_phs=obs_phs)
@@ -119,10 +122,10 @@ class FeedForwardPolicy(QRDQNPolicy):
                             action_out = tf_layers.layer_norm(action_out, center=True, scale=True)
                         action_out = act_fun(action_out)
 
-                action_scores = tf_layers.fully_connected(action_out, num_outputs=self.n_actions * self.n_atoms, activation_fn=None)
-
-            # dueling is currently not supported.
-            # todo: consider adding support in dueling. is it possible ?
+                action_scores_flat = tf_layers.fully_connected(action_out, num_outputs=self.n_actions*self.n_atoms,
+                                                          activation_fn=None)
+                action_scores = tf.reshape(action_scores_flat,shape=[-1,self.n_actions,self.n_atoms])
+            # todo: add support in dueling. not sure how to handle the state value with quantiles
             if self.dueling:
                 with tf.variable_scope("state_value"):
                     state_out = extracted_features
@@ -131,17 +134,34 @@ class FeedForwardPolicy(QRDQNPolicy):
                         if layer_norm:
                             state_out = tf_layers.layer_norm(state_out, center=True, scale=True)
                         state_out = act_fun(state_out)
-                    state_score = tf_layers.fully_connected(state_out, num_outputs=1, activation_fn=None)
+                    state_score = tf_layers.fully_connected(state_out, num_outputs=n_atoms, activation_fn=None)
+                action_scores = tf.reduce_mean(action_scores, axis=-1)
                 action_scores_mean = tf.reduce_mean(action_scores, axis=1)
                 action_scores_centered = action_scores - tf.expand_dims(action_scores_mean, axis=1)
                 q_out = state_score + action_scores_centered
             else:
-                # q_out = action_scores
-                q_out = tf.reshape(action_scores, shape=[-1, self.n_actions, self.n_atoms], name='quantiles')
+                q_out = tf.identity(action_scores,name='quantiles')
+
         self.q_values = q_out
         self._setup_init()
 
     def step(self, obs, state=None, mask=None, deterministic=True):
+        '''
+        step method is used to derive actions to do step in the environment *in evaluation mode*
+        Note that as opposed to the act_f function created in the agent, is for training.
+        During training we might want to support epsilon greedy with eps decay. this is what the act_f does.
+        with probability eps it chooses uniformly random , with probability 1-eps it chooses argmax (q_values)
+
+        This function is deterministic by default (taking argmax(q_values)) but also supports stochastic mode
+        in which it takes np.random.choice(n_actions, p=actions_proba)
+        where actions_proba is softmax(q_values)
+
+        :param obs:
+        :param state:
+        :param mask:
+        :param deterministic:
+        :return:
+        '''
         q_values, actions_proba = self.sess.run([self.q_values, self.policy_proba], {self.obs_ph: obs})
         if deterministic:
             actions = np.argmax(q_values, axis=1)
@@ -158,7 +178,7 @@ class FeedForwardPolicy(QRDQNPolicy):
     def proba_step(self, obs, state=None, mask=None):
         return self.sess.run(self.policy_proba, {self.obs_ph: obs})
 
-# todo: add n_atoms to CnnPolicy
+
 class CnnPolicy(FeedForwardPolicy):
     """
     Policy object that implements DQN policy, using a CNN (the nature CNN)
@@ -166,6 +186,7 @@ class CnnPolicy(FeedForwardPolicy):
     :param sess: (TensorFlow session) The current TensorFlow session
     :param ob_space: (Gym Space) The observation space of the environment
     :param ac_space: (Gym Space) The action space of the environment
+    :param n_atoms: (int) The number of atoms (quantiles) in the distribution approximation
     :param n_env: (int) The number of environments to run
     :param n_steps: (int) The number of steps to run for each environment
     :param n_batch: (int) The number of batch to run (n_envs * n_steps)
@@ -173,16 +194,17 @@ class CnnPolicy(FeedForwardPolicy):
     :param obs_phs: (TensorFlow Tensor, TensorFlow Tensor) a tuple containing an override for observation placeholder
         and the processed observation placeholder respectively
     :param dueling: (bool) if true double the output MLP to compute a baseline for action scores
+    :param n_atoms: (int) The number of atoms (quantiles) in the distribution approximation
     :param _kwargs: (dict) Extra keyword arguments for the nature CNN feature extraction
     """
 
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch,
-                 reuse=False, obs_phs=None, dueling=True, **_kwargs):
+                 reuse=False, obs_phs=None, dueling=False, n_atoms=50, **_kwargs):
         super(CnnPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
-                                        feature_extraction="cnn", obs_phs=obs_phs, dueling=dueling,
+                                        feature_extraction="cnn", obs_phs=obs_phs, dueling=dueling,n_atoms=n_atoms,
                                         layer_norm=False, **_kwargs)
 
-# todo: add n_atoms to LnCnnPolicy
+
 class LnCnnPolicy(FeedForwardPolicy):
     """
     Policy object that implements DQN policy, using a CNN (the nature CNN), with layer normalisation
@@ -197,14 +219,15 @@ class LnCnnPolicy(FeedForwardPolicy):
     :param obs_phs: (TensorFlow Tensor, TensorFlow Tensor) a tuple containing an override for observation placeholder
         and the processed observation placeholder respectively
     :param dueling: (bool) if true double the output MLP to compute a baseline for action scores
+    :param n_atoms: (int) The number of atoms (quantiles) in the distribution approximation
     :param _kwargs: (dict) Extra keyword arguments for the nature CNN feature extraction
     """
 
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch,
-                 reuse=False, obs_phs=None, dueling=True, **_kwargs):
+                 reuse=False, obs_phs=None, dueling=False, n_atoms=50,**_kwargs):
         super(LnCnnPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
                                           feature_extraction="cnn", obs_phs=obs_phs, dueling=dueling,
-                                          layer_norm=True, **_kwargs)
+                                          layer_norm=True, n_atoms=n_atoms,**_kwargs)
 
 
 class MlpPolicy(FeedForwardPolicy):
@@ -214,7 +237,6 @@ class MlpPolicy(FeedForwardPolicy):
     :param sess: (TensorFlow session) The current TensorFlow session
     :param ob_space: (Gym Space) The observation space of the environment
     :param ac_space: (Gym Space) The action space of the environment
-    :param n_atoms: (int) The number of atoms (quantiles) in the distribution approximation
     :param n_env: (int) The number of environments to run
     :param n_steps: (int) The number of steps to run for each environment
     :param n_batch: (int) The number of batch to run (n_envs * n_steps)
@@ -222,6 +244,7 @@ class MlpPolicy(FeedForwardPolicy):
     :param obs_phs: (TensorFlow Tensor, TensorFlow Tensor) a tuple containing an override for observation placeholder
         and the processed observation placeholder respectively
     :param dueling: (bool) if true double the output MLP to compute a baseline for action scores
+    :param n_atoms: (int) The number of atoms (quantiles) in the distribution approximation
     :param _kwargs: (dict) Extra keyword arguments for the nature CNN feature extraction
     """
 
@@ -229,9 +252,9 @@ class MlpPolicy(FeedForwardPolicy):
                  reuse=False, obs_phs=None, dueling=False, n_atoms=50, **_kwargs):
         super(MlpPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
                                         feature_extraction="mlp", obs_phs=obs_phs, dueling=dueling,
-                                        n_atoms=n_atoms,layer_norm=False, **_kwargs)
+                                        layer_norm=False, n_atoms=n_atoms, **_kwargs)
 
-# todo: add n_atoms to LnMlpPolicy
+
 class LnMlpPolicy(FeedForwardPolicy):
     """
     Policy object that implements DQN policy, using a MLP (2 layers of 64), with layer normalisation
@@ -250,13 +273,9 @@ class LnMlpPolicy(FeedForwardPolicy):
     """
 
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch,
-                 reuse=False, obs_phs=None, dueling=True, **_kwargs):
+                 reuse=False, obs_phs=None, dueling=False, n_atoms=50, **_kwargs):
         super(LnMlpPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
                                           feature_extraction="mlp", obs_phs=obs_phs,
-                                          layer_norm=True, dueling=True, **_kwargs)
+                                          layer_norm=True, dueling=dueling, n_atoms=n_atoms,**_kwargs)
 
 
-register_policy("CnnPolicy", CnnPolicy)
-register_policy("LnCnnPolicy", LnCnnPolicy)
-register_policy("MlpPolicy", MlpPolicy)
-register_policy("LnMlpPolicy", LnMlpPolicy)
