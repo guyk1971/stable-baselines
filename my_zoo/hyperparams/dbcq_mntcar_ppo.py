@@ -58,6 +58,8 @@ batch_expert_params.n_steps = 16
 batch_expert_params.nminibatches = 1
 batch_expert_params.lam = 0.98
 batch_expert_params.ent_coef=0.0
+batch_expert_params.verbose = 0
+
 
 
 

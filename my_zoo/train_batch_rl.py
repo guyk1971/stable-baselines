@@ -160,8 +160,6 @@ def load_or_create_experience_buffer(experiment_params,output_dir):
     # if we got an existing experience buffer, load from file and return it
     if experiment_params.batch_experience_buffer and os.path.exists(experiment_params.batch_experience_buffer):
         logger.info('loading experience buffer from '+experiment_params.batch_experience_buffer)
-        # experience_buffer = ReplayBuffer(experiment_params.batch_experience_agent_params.buffer_size)
-        # experience_buffer.load(experiment_params.batch_experience_buffer)
         experience_buffer = np.load(experiment_params.batch_experience_buffer,allow_pickle=True)
         return experience_buffer
     # if we got to this line, we need to generate an experience buffer
