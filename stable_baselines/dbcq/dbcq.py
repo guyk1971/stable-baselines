@@ -213,6 +213,7 @@ class DBCQ(OffPolicyRLModel):
             # Full pass on the training set
             for _ in range(len(dataset.train_loader)):
                 expert_obs, expert_actions = dataset.get_next_batch('train')
+                # expert_actions = 3* np.ones_like(expert_actions)   # GK for debug
                 feed_dict = {
                     obs_ph: expert_obs,
                     actions_ph: expert_actions,
@@ -220,21 +221,24 @@ class DBCQ(OffPolicyRLModel):
                 train_loss_, _ = self.sess.run([loss, optim_op], feed_dict)
                 train_loss += train_loss_
 
-            train_loss /= len(dataset.train_loader)
+            # train_loss /= len(dataset.train_loader)
 
             if self.verbose > 0 and (epoch_idx + 1) % val_interval == 0:
                 val_loss = 0.0
                 # Full pass on the validation set
                 for _ in range(len(dataset.val_loader)):
                     expert_obs, expert_actions = dataset.get_next_batch('val')
+                    # expert_actions= 3 * np.ones_like(expert_actions)  # GK for debug
                     val_loss_, = self.sess.run([loss], {obs_ph: expert_obs,
                                                         actions_ph: expert_actions})
                     val_loss += val_loss_
 
-                val_loss /= len(dataset.val_loader)
+                # val_loss /= len(dataset.val_loader)
                 if self.verbose > 0:
-                    logger.info("==== Gen Model Training progress {:.2f}% ====".format(100 * (epoch_idx + 1) / n_epochs))
-                    logger.info("Training loss: {:.6f}, Validation loss: {:.6f} \n".format(train_loss, val_loss))
+                    # logger.info("==== Gen Model Training progress {:.2f}% ====".format(100 * (epoch_idx + 1) / n_epochs))
+                    # logger.info("Training loss: {:.6f}, Validation loss: {:.6f} \n".format(train_loss, val_loss))
+                    logger.info("=== Gen Model Training epoch {0}/{1}: train loss {2:.6f}, val loss {3:.6f} ===\n"
+                                .format(epoch_idx,n_epochs,train_loss,val_loss))
             # Free memory
             del expert_obs, expert_actions
         return
@@ -248,11 +252,12 @@ class DBCQ(OffPolicyRLModel):
                 as writer:
             self._setup_learn()
             logger.info('training the generative model')
-            self._train_gen_act_model()
+            self._train_gen_act_model(val_interval=1)
             logger.info('finished training the generative model')
             iter_cnt=0        # iterations counter
             ts=0
             epoch = 0   # epochs counter
+            mean_reward = None
             last_updadte_target_ts = 0
             n_minibatches = len(self.dataset.train_loader)
             callback.on_training_start(locals(),globals())
@@ -312,7 +317,8 @@ class DBCQ(OffPolicyRLModel):
                 if self.verbose >= 1 and log_interval is not None:
                     logger.record_tabular("epoch", epoch)
                     logger.record_tabular("epoch_loss", avg_epoch_loss)
-                    logger.record_tabular('mean {0} episode reward'.format(self.n_eval_episodes), mean_reward)
+                    if mean_reward is not None:
+                        logger.record_tabular('mean {0} episode reward'.format(self.n_eval_episodes), mean_reward)
                     logger.dump_tabular()
         callback.on_training_end()
         return self

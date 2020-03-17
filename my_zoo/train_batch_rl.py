@@ -17,9 +17,10 @@ import yaml
 import ast
 from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
-from stable_baselines.dbcq.expert_dataset import generate_experience_traj
+from stable_baselines.dbcq.expert_dataset import generate_experience_traj,load_experience_traj
 from my_zoo.utils.utils import ALGOS
 from stable_baselines.dbcq.dbcq import DBCQ
+from my_zoo.my_envs import L2PEnv
 import shutil
 
 
@@ -56,9 +57,12 @@ def parse_cmd_line():
 
 def env_make(n_envs,env_params,algo,seed):
     env_id = env_params.env_id
-    logger.info('using {0} instances of {1} :'.format(n_envs,env_id))
-    create_env = get_create_env(algo,seed,env_params)
-    env = create_env(n_envs)
+    logger.info('using {0} instances of {1} :'.format(n_envs, env_id))
+    if env_id=='L2P':
+        env = L2PEnv()
+    else:
+        create_env = get_create_env(algo,seed,env_params)
+        env = create_env(n_envs)
     return env
 
 
@@ -158,9 +162,11 @@ def create_experience_buffer(experiment_params,output_dir):
 
 def load_or_create_experience_buffer(experiment_params,output_dir):
     # if we got an existing experience buffer, load from file and return it
-    if experiment_params.batch_experience_buffer and os.path.exists(experiment_params.batch_experience_buffer):
+    if experiment_params.batch_experience_buffer and os.path.exists(experiment_params.batch_experience_buffer) and \
+        experiment_params.batch_experience_buffer.endswith('.csv'):
         logger.info('loading experience buffer from '+experiment_params.batch_experience_buffer)
-        experience_buffer = np.load(experiment_params.batch_experience_buffer,allow_pickle=True)
+        experience_buffer = load_experience_traj(experiment_params.batch_experience_buffer)
+        # experience_buffer = np.load(experiment_params.batch_experience_buffer,allow_pickle=True)
         return experience_buffer
     # if we got to this line, we need to generate an experience buffer
     experience_buffer = create_experience_buffer(experiment_params,output_dir)

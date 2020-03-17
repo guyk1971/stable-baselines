@@ -1,8 +1,12 @@
 import random
 
 import numpy as np
-
+import os
+import pandas as pd
+import ast
 from stable_baselines.common.segment_tree import SumSegmentTree, MinSegmentTree
+from tqdm import tqdm
+from stable_baselines import logger
 
 
 class ReplayBuffer(object):
@@ -47,6 +51,9 @@ class ReplayBuffer(object):
         :return: (bool)
         """
         return len(self) == self.buffer_size
+    def _reset(self):
+        self._storage = []
+        self._next_idx = 0
 
     def add(self, obs_t, action, reward, obs_tp1, done):
         """
@@ -139,6 +146,138 @@ class ReplayBuffer(object):
     def load(self,filename):
         self._storage = np.load(filename,allow_pickle=True)
         self._maxsize = max(self._maxsize,len(self._storage))
+
+    def load_from_csv(self,filename):
+        '''
+        load_from_csv loads the replay buffer from csv to self._storage
+        it expects the csv to have the following columns :
+        'action' [str/int/float]- the action that was taken. if not scalar, will be fed as string to evaluate)
+        'all_action_probabilities' [str] - the probabilities of the possible actions (what happens in continuous action ?)
+        'episode_name' [str] - the name of the episode
+        'episode_id' [int] - episode ID. (integer index )
+        'reward' [float]- r_(t+1)
+        'transition_number' - step index (t)
+        'state_feature_i' [float] - element in the state vector (i starts from 0 to obs_dim-1)
+
+        :param filename: name of the csv file
+        :return:
+        '''
+        self._reset()
+        try:
+            df=pd.read_csv(filename)
+        except FileNotFoundError:
+            raise FileNotFoundError('Could not find '+filename)
+        self._maxsize = max(self._maxsize,len(df))
+        episode_returns = []
+        episode_starts = [1]
+        episode_ids = df['episode_id'].unique()
+        state_columns = [col for col in df.columns if col.startswith('state_feature')]
+        for e_id_i in tqdm(range(len(episode_ids))):
+            # progress_bar.update(e_id)
+            e_id = episode_ids[e_id_i]
+            df_episode_transitions = df[df['episode_id'] == e_id]
+            if len(df_episode_transitions) < 2:
+                # we have to have at least 2 rows in each episode for creating a transition
+                logger.warn('dropped short episode {0}'.format(e_id))
+                continue
+            transitions = []
+            for (_, current_transition), (_, next_transition) in zip(df_episode_transitions[:-1].iterrows(),
+                                                                     df_episode_transitions[1:].iterrows()):
+                obs = np.array([current_transition[col] for col in state_columns])
+                obs_tp1 = np.array([next_transition[col] for col in state_columns])
+                action = int(current_transition['action'])
+                reward = current_transition['reward']
+                # info is extracted from the csv but currently not saved in the _storage
+                info = {'all_action_probabilities':ast.literal_eval(current_transition['all_action_probabilities'])}
+                transitions.append({'obs_t':obs,'action':action,'reward':reward,'obs_tp1':obs_tp1,'done':0})
+            # set the done flag of the last transition to True
+            transitions[-1]['done']=1
+            reward_sum = 0.0
+            for t in transitions:
+                self.add(**t)
+                reward_sum += t['reward']
+                episode_starts.append(t['done'])
+            episode_returns.append(reward_sum)
+        episode_starts=episode_starts[:-1]
+        return episode_starts,episode_returns
+
+    def _find_next_episode_start(self):
+        idx=self._next_idx
+        # assuming the buffer is full
+        found=False
+        for t in range(self._maxsize):
+            (_, _, _, _, done) = self._storage[idx]
+            if done:
+                found=True
+                break
+            idx = (idx+1) % self._maxsize
+        if not found:
+            idx = -100      # return arbitrary negative number
+        return idx+1
+
+    def save_to_csv(self,filename,episode_name='episode'):
+        '''
+        saves self._storage to a csv file
+        it expects the csv to have the following columns :
+        'action' [str/int/float]- the action that was taken. if not scalar, will be fed as string to evaluate)
+        'all_action_probabilities' [str] - the probabilities of the possible actions (what happens in continuous action ?)
+        'episode_name' [str] - the name of the episode
+        'episode_id' [int] - episode ID. (integer index )
+        'reward' [float]- r_(t+1)
+        'transition_number' - step index (t)
+        'state_feature_i' [float] - element in the state vector (i starts from 0 to obs_dim-1)
+        ASSUMPTION: this method is called at the end of episode.
+        :param filename: name of the csv file
+        :return:
+        '''
+
+        # we want to save full episodes to the csv so we'll have to consider 2 scenarios:
+        # if not is_full: we simply save the episode from the beginning of the buffer until _next_idx
+        # if is_full: we scan from next_idx to the first row with 'done=1' which indicates end of episode
+        # and we start record from the following line until _next_idx
+        if len(self._storage)==0:
+            logger.warn('replay buffer is empty. nothing saved')
+            return
+        if self.is_full():
+            # handle the more complex scenario
+            start_indx = self._find_next_episode_start()
+        else:
+            start_indx = 0
+        if start_indx < 0:
+            logger.warn('could not find full episode in the buffer. nothing saved')
+            return
+        num_transitions = self._next_idx
+        if start_indx > self._next_idx:
+            num_transitions += self._maxsize
+
+        # now we build the dataframe
+        obs,_,_,_,_=self._storage[start_indx]
+        obs_dim = np.array(obs).size
+        transitions = []
+        idx=start_indx
+        ep_id = 0   # episode id generator
+        df_cols=['action','all_action_probabilities','episode_name','episode_id','reward',
+                                      'transition_number']+['state_feature_{0}'.format(i) for i in range(obs_dim)]
+        df = pd.DataFrame([],columns=df_cols)
+        act_prob = '[]'     # currently no information about action probabilities. once we get it from the agent,
+                            # we'll add it to the buffer in the info field as a dict:
+                            # {'all_action_probabilities': str(numpy array of probabilities)}
+        ep_name=episode_name+'_{0}'.format(ep_id)
+        for t in range(num_transitions):
+            obs_t, action, reward, obs_tp1, done = self._storage[idx]
+            # currently we're not saving the action probabilities. if we add it, it will be in the info field.
+            # add the transition as a row in the dataset
+            # {k:v for k,v in zip(df_cols,[a,aap,epn,eid,r,t]+list(obs))}
+            row=pd.DataFrame({k:v for k,v in zip(df_cols,[action,act_prob,ep_name,ep_id,reward,t]+list(obs_t))})
+            df = df.append(row,ignore_index=True)
+            # the episode name is episode_name+'_{0}'.format(ep_id)
+            idx = (idx + 1) % self._maxsize
+            if done:
+                ep_id+=1
+                ep_name = episode_name + '_{0}'.format(ep_id)
+        # df is ready. save to csv
+        df.to_csv(filename)
+        return
 
 
 class PrioritizedReplayBuffer(ReplayBuffer):
