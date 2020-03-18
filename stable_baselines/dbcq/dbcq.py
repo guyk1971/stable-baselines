@@ -221,7 +221,7 @@ class DBCQ(OffPolicyRLModel):
                 train_loss_, _ = self.sess.run([loss, optim_op], feed_dict)
                 train_loss += train_loss_
 
-            # train_loss /= len(dataset.train_loader)
+            train_loss /= len(dataset.train_loader)
 
             if self.verbose > 0 and (epoch_idx + 1) % val_interval == 0:
                 val_loss = 0.0
@@ -233,7 +233,7 @@ class DBCQ(OffPolicyRLModel):
                                                         actions_ph: expert_actions})
                     val_loss += val_loss_
 
-                # val_loss /= len(dataset.val_loader)
+                val_loss /= len(dataset.val_loader)
                 if self.verbose > 0:
                     # logger.info("==== Gen Model Training progress {:.2f}% ====".format(100 * (epoch_idx + 1) / n_epochs))
                     # logger.info("Training loss: {:.6f}, Validation loss: {:.6f} \n".format(train_loss, val_loss))
