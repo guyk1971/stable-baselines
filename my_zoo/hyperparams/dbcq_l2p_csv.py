@@ -95,7 +95,10 @@ agent_params.target_network_update_freq = 1         # every 1 epoch
 agent_params.val_freq = 0                           # no real env, so no validation
 agent_params.batch_size = 128
 agent_params.buffer_train_fraction = 1.0         # currently online evaluation. use all buffer for training
-agent_params.gen_act_params = {'type': 'NN', 'n_epochs': 1000, 'lr': 1e-4, 'train_frac': 0.7, 'batch_size': 128}
+agent_params.gen_act_params = {'type': 'NN', 'n_epochs': 100, 'lr': 1e-4, 'train_frac': 0.7, 'batch_size': 128}
+agent_params.gamma = 0.5
+agent_params.gen_train_with_main = True
+
 
 
 

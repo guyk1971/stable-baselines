@@ -381,6 +381,8 @@ class DBCQAgentParams(AgentParams):
                                                 # if 'NN' the agent will use the same type of policy for the generative model
         self.gen_act_params = {'type': 'NN', 'n_epochs': 50, 'lr': 1e-3, 'train_frac': 0.7, 'batch_size': 64}
         # self.gen_act_params = {'type':'KNN','size': 1000}  # knn parameters
+        self.gen_train_with_main = False        # if True, continue to train the generative model while training the
+                                                # main agent
         self.n_cpu_tf_sess = None
         self.policy_kwargs = None
         return

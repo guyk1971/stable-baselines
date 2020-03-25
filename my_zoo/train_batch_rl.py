@@ -44,7 +44,7 @@ def parse_cmd_line():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('exparams', type=str, help='experiment params file path')
-    parser.add_argument('-d','--gpuid',type=str,default='',help='gpu id or "cpu"')
+    parser.add_argument('-d','--gpuid',type=str,default='0',help='gpu id or "cpu"')
     parser.add_argument('--num_experiments', help='number of experiments', default=1,type=int)
     parser.add_argument('--seed', help='Random generator seed', type=int, default=1)
     parser.add_argument('-n', '--n_timesteps', help='Overwrite the number of timesteps', default=-1,type=int)

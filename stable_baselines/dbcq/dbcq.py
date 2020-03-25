@@ -52,8 +52,8 @@ class DBCQ(OffPolicyRLModel):
         If None, the number of cpu of the current machine will be used.
     """
     def __init__(self, policy, env, replay_buffer=None, gen_act_policy=None ,gamma=0.99, learning_rate=5e-4,
-                 val_freq=0, batch_size=32, target_network_update_freq=500,
-                 buffer_train_fraction=0.8, gen_act_params = None,param_noise=False, act_distance_thresh=0.3,
+                 val_freq=0, batch_size=32, target_network_update_freq=500,buffer_train_fraction=0.8,
+                 gen_act_params = None,gen_train_with_main=False,param_noise=False, act_distance_thresh=0.3,
                  n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
                  _init_setup_model=True, policy_kwargs=None, full_tensorboard_log=False, seed=None):
 
@@ -72,21 +72,22 @@ class DBCQ(OffPolicyRLModel):
         self.gen_act_params = gen_act_params
         self.act_distance_th = act_distance_thresh
         self.gen_act_policy = gen_act_policy
-
+        self.gen_train_with_main = gen_train_with_main
 
         self.tensorboard_log = tensorboard_log
         self.full_tensorboard_log = full_tensorboard_log
         self.graph = None
         self.sess = None
         self._train_step = None
-        self._gen_train_step = None
         self.step_model = None
+        self.gen_act_model = None
         self.update_target = None
         self.act = None
         self.proba_step = None
         self.beta_schedule = None
         self.exploration = None
         self.params = None
+        self.gen_act_trainables = None
         self.summary = None
 
         if _init_setup_model:
@@ -130,8 +131,7 @@ class DBCQ(OffPolicyRLModel):
 
                 optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
                 # build the training graph operations
-                self.act, self._train_step, self.update_target, self.step_model, \
-                self.gen_act_model,self._gen_train_step = build_train(
+                self.act, self._train_step, self.update_target, self.step_model,self.gen_act_model = build_train(
                     q_func=partial(self.policy, **self.policy_kwargs),
                     gen_act_policy=self.gen_act_policy,
                     ob_space=self.observation_space,
@@ -139,13 +139,14 @@ class DBCQ(OffPolicyRLModel):
                     optimizer=optimizer,
                     gamma=self.gamma,
                     grad_norm_clipping=10,
+                    gen_train_with_main=self.gen_train_with_main,
                     param_noise=self.param_noise,
                     sess=self.sess,
                     full_tensorboard_log=self.full_tensorboard_log,
                 )
                 self.proba_step = self.step_model.proba_step
                 self.params = tf_util.get_trainable_vars("dbcq")
-                self.gen_act_trainables = tf_util.get_globals_vars("dbcq/gen_act_model")
+                self.gen_act_trainables = tf_util.get_trainable_vars("dbcq/gen_act_model")
 
                 # Initialize the parameters and copy them to the target network.
                 tf_util.initialize(self.sess)
@@ -272,16 +273,16 @@ class DBCQ(OffPolicyRLModel):
                         if (1 + epoch) % 10 == 0:
                             run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                             run_metadata = tf.RunMetadata()
-                            summary, loss = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1, obses_tp1,
-                                                             dones, weights, self.act_distance_th , sess=self.sess,
-                                                             options=run_options,run_metadata=run_metadata)
+                            summary, losses = self._train_step(obses_t, obses_t, actions, rewards, obses_tp1, obses_tp1,
+                                                             obses_tp1,dones, weights, self.act_distance_th ,
+                                                             sess=self.sess,options=run_options,run_metadata=run_metadata)
                             writer.add_run_metadata(run_metadata, 'step%d' % self.num_timesteps)
                         else:
-                            summary, loss = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1, obses_tp1,
-                                                             dones, weights, self.act_distance_th, sess=self.sess)
+                            summary, losses = self._train_step(obses_t, obses_t,actions, rewards, obses_tp1, obses_tp1,
+                                                             obses_tp1,dones, weights, self.act_distance_th, sess=self.sess)
                         writer.add_summary(summary, self.num_timesteps)
                     else:
-                        _, loss = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1, obses_tp1,
+                        _, losses = self._train_step(obses_t, obses_t, actions, rewards, obses_tp1, obses_tp1, obses_tp1,
                                                    dones, weights, self.act_distance_th, sess=self.sess)
                     # update counters
                     self.num_timesteps += len(obses_t)
@@ -292,7 +293,8 @@ class DBCQ(OffPolicyRLModel):
                         break
                 epoch += 1     # inc
                 # finished going through the data. summarize the epoch:
-                avg_epoch_loss = loss/n_minibatches
+                avg_epoch_loss = losses['main']/n_minibatches
+                avg_gen_loss = losses['gen']/n_minibatches if self.gen_train_with_main else None
                 # should_update_target = ((ts-last_updadte_target_ts)>self.target_network_update_freq)
                 should_update_target = ((epoch % self.target_network_update_freq) ==0)
                 if should_update_target:
@@ -317,6 +319,8 @@ class DBCQ(OffPolicyRLModel):
                 if self.verbose >= 1 and log_interval is not None:
                     logger.record_tabular("epoch", epoch)
                     logger.record_tabular("epoch_loss", avg_epoch_loss)
+                    if avg_gen_loss is not None:
+                        logger.record_tabular("gen_loss",avg_gen_loss)
                     if mean_reward is not None:
                         logger.record_tabular('mean {0} episode reward'.format(self.n_eval_episodes), mean_reward)
                     logger.dump_tabular()
@@ -377,6 +381,7 @@ class DBCQ(OffPolicyRLModel):
             "gen_act_policy": self.gen_act_policy,
             "gen_act_params": self.gen_act_params,
             "buffer_train_fraction": self.buffer_train_fraction,
+            "gen_train_with_main": self.gen_train_with_main,
             # variables saved by parent class
             "verbose": self.verbose,
             "observation_space": self.observation_space,
