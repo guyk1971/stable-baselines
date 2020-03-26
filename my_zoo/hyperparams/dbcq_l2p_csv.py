@@ -90,7 +90,7 @@ agent_params = DBCQAgentParams()
 agent_params.policy = MlpPolicy
 agent_params.verbose = 1
 agent_params.learning_rate = 1e-4
-agent_params.policy_kwargs = {'dueling':False,'layers': [256, 512]}
+agent_params.policy_kwargs = {'dueling':False,'layers': [16, 32]}
 agent_params.target_network_update_freq = 1         # every 1 epoch
 agent_params.val_freq = 0                           # no real env, so no validation
 agent_params.batch_size = 128
@@ -133,7 +133,7 @@ experiment_params.batch_expert_n_timesteps = int(1e5)       # n_timesteps to tra
 # main agent
 experiment_params.trained_agent = trained_agent
 experiment_params.agent_params = agent_params
-experiment_params.n_timesteps = int(1e7)
+experiment_params.n_timesteps = int(5e7)
 
 
 

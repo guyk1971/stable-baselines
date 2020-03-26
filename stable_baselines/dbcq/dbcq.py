@@ -128,7 +128,8 @@ class DBCQ(OffPolicyRLModel):
             with self.graph.as_default():
                 self.set_random_seed(self.seed)
                 self.sess = tf_util.make_session(num_cpu=self.n_cpu_tf_sess, graph=self.graph)
-
+                # if lr_scheduling: comment out the following. it will be defined inside the build_graph using
+                # the placeholder
                 optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
                 # build the training graph operations
                 self.act, self._train_step, self.update_target, self.step_model,self.gen_act_model = build_train(
@@ -267,6 +268,7 @@ class DBCQ(OffPolicyRLModel):
                 for _ in range(n_minibatches):
                     obses_t, actions, rewards, obses_tp1, dones = self.dataset.get_next_batch('train')
                     weights, batch_idxes = np.ones_like(rewards), None
+                    # if lr_scheduling set the learning rate here and send it in the _train_step
                     if writer is not None:
                         # run loss backprop with summary, but once every 10 epochs save the metadata
                         # (memory, compute time, ...)

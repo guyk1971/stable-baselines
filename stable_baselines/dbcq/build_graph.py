@@ -207,26 +207,40 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
         stochastic_ph = tf.placeholder(tf.bool, (), name="stochastic")
         update_eps_ph = tf.placeholder(tf.float32, (), name="update_eps")
         act_dist_thresh_ph = tf.placeholder(tf.float32, (), name="act_dist_thresh")
+        # learning_rate_ph = tf.placeholder(tf.float32, (), name="learning_rate")
+
+    # todo: lr_scheduling
+    # define the optimizer inside this function as follows:
+    # optimizer = tf.train.AdamOptimizer(learning_rate_ph)
+
 
     with tf.variable_scope(scope, reuse=reuse):
         if param_noise:
             print('Error: DBCQ doesnt yet support parameter noise. aborting')
             raise NotImplementedError
         else:
+            # the following will build a model with variable scope : scope/model
             act_f, obs_phs = build_act(q_func, ob_space, ac_space, stochastic_ph, update_eps_ph, sess)
 
         # q network evaluation
+        # the following will build a model whose input ph is in context scope/step_model/input
+        # but since we're in context that reuse and use outer_scope_getter, the network variables
+        # are shared with scope/model so we dont create new variables
         with tf.variable_scope("step_model", reuse=True, custom_getter=tf_util.outer_scope_getter("step_model")):
             step_model = q_func(sess, ob_space, ac_space, 1, 1, None, reuse=True, obs_phs=obs_phs)
         q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=tf.get_variable_scope().name + "/model")
 
         # target q network evaluation
+        # the following is creating a network with the scope/target_q_func/input and
+        # weights with scope scope/target_q_func/model
         with tf.variable_scope("target_q_func", reuse=False):
             target_policy = q_func(sess, ob_space, ac_space, 1, 1, None, reuse=False)
         target_q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
                                                scope=tf.get_variable_scope().name + "/target_q_func")
 
         # compute estimate of best possible value starting from state at t + 1
+        # the following will create a network with input scope/double_q/input and
+        # weights with scope scope/model so will share with the main model (online)
         with tf.variable_scope("double_q", reuse=True, custom_getter=tf_util.outer_scope_getter("double_q")):
             double_policy = q_func(sess, ob_space, ac_space, 1, 1, None, reuse=True)
             # double_policy = q_func(sess, ob_space, ac_space, 1, 1, None, reuse=False)
@@ -234,14 +248,17 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
             double_obs_ph = double_policy.obs_ph
 
         # generative action model network
+        # generate network with input scope/gen_act_model/input and weights scope/gen_act_model/model
         with tf.variable_scope("gen_act_model", reuse=False):
             gen_act_model = gen_act_policy(sess, ob_space, ac_space, 1, 1, None, reuse=False)
+            # generate network with input scope/gen_act_model/gen_online/input
+            # and weights scope/gen_act_model/model - so shared 
             with tf.variable_scope("gen_online",reuse=True,custom_getter=tf_util.outer_scope_getter("gen_online")):
                 gen_act_online = gen_act_policy(sess, ob_space, ac_space, 1, 1, None, reuse=True)
         gen_act_model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
                                                scope=tf.get_variable_scope().name + "/gen_act_model")
         gen_optimizer = copy.deepcopy(optimizer)        # for online training use the same optimizer as the main network
-
+        # gen_optimizer = tf.train.AdamOptimizer(learning_rate_ph)
 
 
 
@@ -361,6 +378,7 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
             done_mask_ph,
             importance_weights_ph,
             act_dist_thresh_ph
+            # if lr_scheduling - add the learning_rate_placeholder here
         ],
         outputs=[summary, losses],
         updates=optimization_ops
