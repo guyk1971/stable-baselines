@@ -361,9 +361,8 @@ class DBCQAgentParams(AgentParams):
         # Default parameters for DQN Agent
         self.algorithm = 'dbcq'
         self.policy = 'MlpPolicy'    # or 'CnnPolicy' or 'CustomDQNPolicy' - the main policy that we train
-        # self.buffer_size = 50000
         self.val_freq = 1                       # num epochs between evaluations
-        self.learning_rate = 1e-4
+        self.learning_rate = 1e-4               # can also be 'lin_<float>' e.g. 'lin_0.001'
         self.target_network_update_freq = 1   # number of epochs between target network updates
         self.param_noise = False
         self.act_distance_thresh = 0.3          # if gen_act_policy is Neural Net - corresponds to the threshold tau

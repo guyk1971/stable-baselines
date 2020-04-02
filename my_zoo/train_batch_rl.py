@@ -239,8 +239,7 @@ def run_experiment(experiment_params):
         n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
         # since the batch algorithm is currently only dbcq, no need to parse agent params
         # but we need to drop the algorithm from the parameters (as done in parse_agent_params)
-        # parse_agent_params(agent_hyperparams,n_actions,experiment_params.n_timesteps,logger)
-        del agent_hyperparams['algorithm']
+        parse_agent_params(agent_hyperparams,n_actions,experiment_params.n_timesteps)
 
         normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
         if normalize:

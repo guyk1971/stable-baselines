@@ -7,7 +7,6 @@ import numpy as np
 from stable_baselines.common.cmd_util import make_atari_env
 from stable_baselines.common.vec_env import VecFrameStack, SubprocVecEnv, VecNormalize, DummyVecEnv
 from stable_baselines.common.noise import AdaptiveParamNoiseSpec, NormalActionNoise, OrnsteinUhlenbeckActionNoise
-# from stable_baselines.ppo2.ppo2 import constfn
 from stable_baselines.common.schedules import get_schedule_fn
 
 try:
@@ -16,13 +15,10 @@ try:
 except ImportError:
     mpi4py = None
 
-from zoo.utils import make_env, ALGOS, linear_schedule, get_latest_run_id, get_wrapper_class, find_saved_model
-from zoo.utils.hyperparams_opt import hyperparam_optimization
+from my_zoo.utils.utils import make_env, linear_schedule, get_wrapper_class
 from zoo.utils.noise import LinearNormalActionNoise
 
-from my_zoo.utils.common import *
 from my_zoo.hyperparams.default_config import CC_ENVS
-# from my_zoo.utils.global_logger import glogger
 from stable_baselines import logger
 
 
@@ -84,11 +80,11 @@ def parse_agent_params(hyperparams,n_actions,n_timesteps):
     del hyperparams['algorithm']
 
     # Parse the schedule parameters for the relevant algorithms
-    if algo in ["ppo2", "sac", "td3"]:
+    if algo in ["ppo2", "sac", "td3", "dbcq"]:
         for key in ['learning_rate', 'cliprange', 'cliprange_vf']:
             if key not in hyperparams or hyperparams[key] is None:
                 continue
-            if isinstance(hyperparams[key], str):
+            if isinstance(hyperparams[key], str):       # currently supporting only linear scheduling (e.g. lin_0.0001)
                 schedule, initial_value = hyperparams[key].split('_')
                 initial_value = float(initial_value)
                 hyperparams[key] = linear_schedule(initial_value)

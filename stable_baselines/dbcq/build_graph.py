@@ -170,7 +170,7 @@ def build_act(q_func, ob_space, ac_space, stochastic_ph,update_eps_ph, sess):
     return act, obs_phs
 
 
-def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, grad_norm_clipping=None,
+def build_train(q_func, gen_act_policy, ob_space, ac_space, sess, grad_norm_clipping=None,
                 gen_train_with_main=False, gamma=1.0, scope="dbcq", reuse=None,param_noise=False,
                 full_tensorboard_log=False):
     """
@@ -207,11 +207,10 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
         stochastic_ph = tf.placeholder(tf.bool, (), name="stochastic")
         update_eps_ph = tf.placeholder(tf.float32, (), name="update_eps")
         act_dist_thresh_ph = tf.placeholder(tf.float32, (), name="act_dist_thresh")
-        # learning_rate_ph = tf.placeholder(tf.float32, (), name="learning_rate")
+        learning_rate_ph = tf.placeholder(tf.float32, (), name="learning_rate")
 
-    # todo: lr_scheduling
     # define the optimizer inside this function as follows:
-    # optimizer = tf.train.AdamOptimizer(learning_rate_ph)
+    optimizer = tf.train.AdamOptimizer(learning_rate_ph)
 
 
     with tf.variable_scope(scope, reuse=reuse):
@@ -257,8 +256,8 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
                 gen_act_online = gen_act_policy(sess, ob_space, ac_space, 1, 1, None, reuse=True)
         gen_act_model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
                                                scope=tf.get_variable_scope().name + "/gen_act_model")
-        gen_optimizer = copy.deepcopy(optimizer)        # for online training use the same optimizer as the main network
-        # gen_optimizer = tf.train.AdamOptimizer(learning_rate_ph)
+        # gen_optimizer = copy.deepcopy(optimizer)        # for online training use the same optimizer as the main network
+        gen_optimizer = tf.train.AdamOptimizer(learning_rate_ph)
 
 
 
@@ -359,13 +358,6 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
     optimization_ops.append(optimize_expr)
 
     # Create callable functions
-    # usage:
-    # summary, loss = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1, obses_tp1,
-    #                                  dones, weights, self.act_distance_th, sess=self.sess)
-    # if we uncomment the get_act_online.obs_ph below, then call should be:
-    # summary, loss = self._train_step(obses_t, obses_t, actions, rewards, obses_tp1, obses_tp1, obses_tp1,
-    #                                  dones, weights, self.act_distance_th, sess=self.sess)
-    #
     train = tf_util.function(
         inputs=[
             obs_phs[0],
@@ -377,8 +369,8 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
             double_obs_ph,
             done_mask_ph,
             importance_weights_ph,
-            act_dist_thresh_ph
-            # if lr_scheduling - add the learning_rate_placeholder here
+            act_dist_thresh_ph,
+            learning_rate_ph
         ],
         outputs=[summary, losses],
         updates=optimization_ops

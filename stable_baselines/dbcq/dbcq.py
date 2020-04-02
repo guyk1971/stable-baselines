@@ -11,6 +11,7 @@ from stable_baselines.deepq.policies import DQNPolicy
 from stable_baselines.gail import ExpertDataset
 from stable_baselines.dbcq.replay_buffer import ExperienceDataset
 from stable_baselines.common.evaluation import evaluate_policy as online_policy_eval
+from stable_baselines.common.schedules import get_schedule_fn
 
 
 class DBCQ(OffPolicyRLModel):
@@ -130,14 +131,14 @@ class DBCQ(OffPolicyRLModel):
                 self.sess = tf_util.make_session(num_cpu=self.n_cpu_tf_sess, graph=self.graph)
                 # if lr_scheduling: comment out the following. it will be defined inside the build_graph using
                 # the placeholder
-                optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
+                # optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
                 # build the training graph operations
                 self.act, self._train_step, self.update_target, self.step_model,self.gen_act_model = build_train(
                     q_func=partial(self.policy, **self.policy_kwargs),
                     gen_act_policy=self.gen_act_policy,
                     ob_space=self.observation_space,
                     ac_space=self.action_space,
-                    optimizer=optimizer,
+                    # optimizer=optimizer,
                     gamma=self.gamma,
                     grad_norm_clipping=10,
                     gen_train_with_main=self.gen_train_with_main,
@@ -247,6 +248,10 @@ class DBCQ(OffPolicyRLModel):
 
     def learn(self, total_timesteps, callback=None, log_interval=10, tb_log_name="DBCQ",
               reset_num_timesteps=True, replay_wrapper=None):
+
+        # Transform to callable if needed
+        self.learning_rate = get_schedule_fn(self.learning_rate)
+
         new_tb_log = self._init_num_timesteps(reset_num_timesteps)
         callback = self._init_callback(callback)
 
@@ -265,6 +270,8 @@ class DBCQ(OffPolicyRLModel):
             callback.on_training_start(locals(),globals())
             while ts < total_timesteps:
                 # Full pass on the training set
+                frac = 1.0 - ts/total_timesteps
+                lr_now = self.learning_rate(frac)         # get the learning rate for the current epoch
                 for _ in range(n_minibatches):
                     obses_t, actions, rewards, obses_tp1, dones = self.dataset.get_next_batch('train')
                     weights, batch_idxes = np.ones_like(rewards), None
@@ -276,16 +283,17 @@ class DBCQ(OffPolicyRLModel):
                             run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                             run_metadata = tf.RunMetadata()
                             summary, losses = self._train_step(obses_t, obses_t, actions, rewards, obses_tp1, obses_tp1,
-                                                             obses_tp1,dones, weights, self.act_distance_th ,
+                                                             obses_tp1,dones, weights, self.act_distance_th ,lr_now,
                                                              sess=self.sess,options=run_options,run_metadata=run_metadata)
                             writer.add_run_metadata(run_metadata, 'step%d' % self.num_timesteps)
                         else:
                             summary, losses = self._train_step(obses_t, obses_t,actions, rewards, obses_tp1, obses_tp1,
-                                                             obses_tp1,dones, weights, self.act_distance_th, sess=self.sess)
+                                                               obses_tp1,dones, weights, self.act_distance_th,lr_now,
+                                                               sess=self.sess)
                         writer.add_summary(summary, self.num_timesteps)
                     else:
                         _, losses = self._train_step(obses_t, obses_t, actions, rewards, obses_tp1, obses_tp1, obses_tp1,
-                                                   dones, weights, self.act_distance_th, sess=self.sess)
+                                                   dones, weights, self.act_distance_th, lr_now, sess=self.sess)
                     # update counters
                     self.num_timesteps += len(obses_t)
                     iter_cnt+=1
@@ -321,6 +329,7 @@ class DBCQ(OffPolicyRLModel):
                 if self.verbose >= 1 and log_interval is not None:
                     logger.record_tabular("epoch", epoch)
                     logger.record_tabular("epoch_loss", avg_epoch_loss)
+                    logger.record_tabular("lr ",lr_now)
                     if avg_gen_loss is not None:
                         logger.record_tabular("gen_loss",avg_gen_loss)
                     if mean_reward is not None:

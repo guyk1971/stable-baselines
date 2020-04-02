@@ -23,9 +23,7 @@ env_params.env_id = 'L2P'
 # Default values for DQNAgentParams:
 # policy = 'MlpPolicy'
 # buffer_size = 50000
-# learning_rate = 1e-4
-# if learning_starts==buffer_size then pure random.
-# learning_starts = 1000
+# learning_rate = 1e-4      # can also be 'lin_<float>' e.g. 'lin_0.001' if agent is ppo, td3, sac
 # target_network_update_freq = 500
 # train_freq = 1
 # exploration_initial_eps = 1.0
@@ -67,8 +65,7 @@ batch_expert_params = None      # this is also the default. if not None, we'll t
 # Default values:
 # policy = 'MlpPolicy'  # or 'CnnPolicy' or 'CustomDQNPolicy'
 # gen_act_model = 'NN'
-# learning_rate = 1e-4
-# learning_starts = 1000
+# learning_rate = 1e-4      # can also be 'lin_<float>' e.g. 'lin_0.001'
 # target_network_update_freq = 500
 # train_freq = 1
 # val_freq = 0
@@ -88,13 +85,15 @@ agent_params = DBCQAgentParams()
 # here we can change the various parameters - for example, we can change the batch size
 agent_params.policy = MlpPolicy
 agent_params.verbose = 1
-agent_params.learning_rate = 1e-4
+# agent_params.learning_rate = 1e-4
+agent_params.learning_rate = 'lin_0.0005'
 agent_params.policy_kwargs = {'dueling':False,'layers': [16, 32]}
 agent_params.target_network_update_freq = 1         # every 1 epoch
 agent_params.val_freq = 0                           # no real env, so no validation
 agent_params.batch_size = 128
 agent_params.buffer_train_fraction = 1.0         # currently online evaluation. use all buffer for training
-agent_params.gen_act_params = {'type': 'NN', 'n_epochs': 100, 'lr': 1e-4, 'train_frac': 0.7, 'batch_size': 128}
+# agent_params.gen_act_params = {'type': 'NN', 'n_epochs': 100, 'lr': 1e-4, 'train_frac': 0.7, 'batch_size': 128}
+agent_params.gen_act_params = {'type': 'NN', 'n_epochs': 10, 'lr': 1e-4, 'train_frac': 0.7, 'batch_size': 128}
 agent_params.gamma = 0.5
 agent_params.gen_train_with_main = True
 
@@ -132,7 +131,7 @@ experiment_params.batch_expert_n_timesteps = int(1e5)       # n_timesteps to tra
 # main agent
 experiment_params.trained_agent = trained_agent
 experiment_params.agent_params = agent_params
-experiment_params.n_timesteps = int(5e7)
+experiment_params.n_timesteps = int(5e6)
 
 
 
