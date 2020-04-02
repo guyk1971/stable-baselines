@@ -93,7 +93,7 @@ agent_params.val_freq = 0                           # no real env, so no validat
 agent_params.batch_size = 128
 agent_params.buffer_train_fraction = 1.0         # currently online evaluation. use all buffer for training
 # agent_params.gen_act_params = {'type': 'NN', 'n_epochs': 100, 'lr': 1e-4, 'train_frac': 0.7, 'batch_size': 128}
-agent_params.gen_act_params = {'type': 'NN', 'n_epochs': 10, 'lr': 1e-4, 'train_frac': 0.7, 'batch_size': 128}
+agent_params.gen_act_params = {'type': 'NN', 'n_epochs': 100, 'lr': 1e-4, 'train_frac': 0.7, 'batch_size': 128}
 agent_params.gamma = 0.5
 agent_params.gen_train_with_main = True
 
@@ -131,7 +131,7 @@ experiment_params.batch_expert_n_timesteps = int(1e5)       # n_timesteps to tra
 # main agent
 experiment_params.trained_agent = trained_agent
 experiment_params.agent_params = agent_params
-experiment_params.n_timesteps = int(5e6)
+experiment_params.n_timesteps = int(5e7)
 
 
 
