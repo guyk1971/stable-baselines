@@ -2,7 +2,7 @@ import os
 import logging
 import numpy as np
 
-ALGO_IDS = ['a2c','acer','dqn','ddpg','sac','td3','ppo2']
+ALGO_IDS = ['a2c','acer','dqn','ddpg','sac','td3','ppo2','dbcq']
 # 'a2c': A2C,
 # 'acer': ACER,
 # 'acktr': ACKTR,
@@ -90,6 +90,11 @@ class DQNAgentParams(AgentParams):
         self.prioritized_replay_alpha = 0.6
         self.prioritized_replay = False
         self.param_noise = False
+
+        # batch_rl defaults:
+        self.val_freq = 1  # num epochs between evaluations
+        self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
+
 
         # other default params
         self.gamma = 0.99

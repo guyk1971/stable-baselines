@@ -9,7 +9,7 @@ from stable_baselines.common import tf_util, OffPolicyRLModel, SetVerbosity, Ten
 from stable_baselines.dbcq.build_graph import build_train
 from stable_baselines.deepq.policies import DQNPolicy
 from stable_baselines.gail import ExpertDataset
-from stable_baselines.dbcq.replay_buffer import ExperienceDataset
+from stable_baselines.common.dataset import ExperienceDataset
 from stable_baselines.common.evaluation import evaluate_policy as online_policy_eval
 from stable_baselines.common.schedules import get_schedule_fn
 
@@ -272,6 +272,7 @@ class DBCQ(OffPolicyRLModel):
                 # Full pass on the training set
                 frac = 1.0 - ts/total_timesteps
                 lr_now = self.learning_rate(frac)         # get the learning rate for the current epoch
+                tot_epoch_loss={'main':0,'gen':0}
                 for _ in range(n_minibatches):
                     obses_t, actions, rewards, obses_tp1, dones = self.dataset.get_next_batch('train')
                     weights, batch_idxes = np.ones_like(rewards), None
@@ -298,13 +299,15 @@ class DBCQ(OffPolicyRLModel):
                     self.num_timesteps += len(obses_t)
                     iter_cnt+=1
                     ts += len(obses_t)
+                    for k in losses.keys():
+                        tot_epoch_loss[k] += losses[k]
                     # in DBCQ, the step is training step done on a minibatch of samples.
                     if callback.on_step() is False:
                         break
                 epoch += 1     # inc
                 # finished going through the data. summarize the epoch:
-                avg_epoch_loss = losses['main']/n_minibatches
-                avg_gen_loss = losses['gen']/n_minibatches if self.gen_train_with_main else None
+                avg_epoch_loss = tot_epoch_loss['main']/n_minibatches
+                avg_gen_loss = tot_epoch_loss['gen']/n_minibatches if self.gen_train_with_main else None
                 # should_update_target = ((ts-last_updadte_target_ts)>self.target_network_update_freq)
                 should_update_target = ((epoch % self.target_network_update_freq) ==0)
                 if should_update_target:

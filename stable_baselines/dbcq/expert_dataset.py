@@ -1,3 +1,6 @@
+#########################################################
+# DEPRECATED !! should be deleted
+#########################################################
 import os
 import warnings
 from typing import Dict
@@ -14,21 +17,8 @@ from tqdm import tqdm
 from stable_baselines.dbcq.replay_buffer import ReplayBuffer
 
 
-def load_experience_traj(csv_path):
-    # check if there's a numpy_dict version already saved (to save csv load time)
-    npz_filename = os.path.splitext(csv_path)[0]+'.npz'
-    if os.path.exists(npz_filename):
-        logger.info("found cached version of experience csv file. loading it")
-        numpy_dict = np.load(npz_filename, allow_pickle=True)
-    else:
-        logger.info("loading from csv and saving a cache file in "+npz_filename)
-        buf=ReplayBuffer(size=1)        # size will be overrun by the csv size
-        episode_starts,episode_returns=buf.load_from_csv(csv_path)
-        numpy_dict = buf.record_buffer()
-        numpy_dict['episode_returns'] = np.array(episode_returns)
-        numpy_dict['episode_starts'] = np.array(episode_starts)
-        np.savez(npz_filename, **numpy_dict)
-    return numpy_dict
+# note : this function is not necesseraly related to dbcq but more to batch_rl mode.
+# so it should be in a file batch_rl_utils.py
 
 def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=0,
                          n_timesteps_record=100000):
