@@ -1,7 +1,7 @@
 #####################################################################
 # my_envs.py
 # Implementations of custom envs
-
+# MLA Template Equivalent: train.custom_envs
 import gym
 from gym import spaces
 import numpy as np

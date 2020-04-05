@@ -2,7 +2,7 @@
 train_batch_rl.py
 train an agent on gym classic control environment.
 Supported environments :
-
+MLA Template Equivalent: train.train_on_batch
 """
 # import os
 import sys

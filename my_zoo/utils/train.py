@@ -1,3 +1,6 @@
+# train related util functions.
+# equivalent to train_common.py in MLA Template
+
 import os
 import warnings
 import gym

@@ -2,7 +2,7 @@
 train_gymcc.py
 train an agent on gym classic control environment.
 Supported environments :
-
+MLA Template Equivalent: train.train_on_env
 """
 import os
 import sys
