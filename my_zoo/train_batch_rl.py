@@ -254,12 +254,12 @@ def run_experiment(experiment_params):
             logger.info("loading pretrained agent to continue training")
             # if policy is defined, delete as it will be loaded with the trained agent
             del agent_hyperparams['policy']
-            # model = ALGOS[algo].load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
-            model = DBCQ.load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
+            model = ALGOS[algo].load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
+            # model = DBCQ.load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
 
         else:  # create a model from scratch
-            # model = ALGOS[algo](env=env, replay_buffer=er_buf, **agent_hyperparams)
-            model = DBCQ(env=env, replay_buffer=er_buf, **agent_hyperparams)
+            model = ALGOS[algo](env=env, replay_buffer=er_buf, **agent_hyperparams)
+            # model = DBCQ(env=env, replay_buffer=er_buf, **agent_hyperparams)
 
         kwargs = {}
         if experiment_params.log_interval > -1:
