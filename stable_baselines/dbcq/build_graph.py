@@ -295,8 +295,8 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, sess, grad_norm_clip
                                                                  trainable=False)
 
         # compute the error (potentially clipped)
-        # td_error = q_t_selected - tf.stop_gradient(q_t_selected_target)
-        td_error = q_t_selected - tf.stop_gradient(tf.reshape(q_t_selected_target_norm,(-1,)))
+        td_error = q_t_selected - tf.stop_gradient(q_t_selected_target)
+        # td_error = q_t_selected - tf.stop_gradient(tf.reshape(q_t_selected_target_norm,(-1,)))
         errors = tf_util.huber_loss(td_error)
         loss = tf.reduce_mean(errors)
         weighted_error = tf.reduce_mean(importance_weights_ph * errors)

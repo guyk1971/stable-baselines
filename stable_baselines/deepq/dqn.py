@@ -105,7 +105,6 @@ class DQN(OffPolicyRLModel):
         self.update_target = None
         self.act = None
         self.proba_step = None
-        self.replay_buffer = None
         self.beta_schedule = None
         self.exploration = None
         self.params = None
