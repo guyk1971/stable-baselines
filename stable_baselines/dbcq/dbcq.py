@@ -55,7 +55,7 @@ class DBCQ(OffPolicyRLModel):
     def __init__(self, policy, env, replay_buffer=None, gen_act_policy=None ,gamma=0.99, learning_rate=5e-4,
                  val_freq=0, batch_size=32, target_network_update_freq=500,buffer_train_fraction=0.8,
                  gen_act_params = None,gen_train_with_main=False,param_noise=False, act_distance_thresh=0.3,
-                 n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
+                 n_eval_episodes=100, n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
                  _init_setup_model=True, policy_kwargs=None, full_tensorboard_log=False, seed=None):
 
         super(DBCQ, self).__init__(policy=policy, env=env, replay_buffer=replay_buffer, verbose=verbose,
@@ -64,7 +64,7 @@ class DBCQ(OffPolicyRLModel):
 
         self.param_noise = param_noise
         self.val_freq = val_freq            # >0  for built in validation (i.e not through callback)
-        self.n_eval_episodes = 100          # number of episodes to evaluate each time we evaluate
+        self.n_eval_episodes = n_eval_episodes          # number of episodes to evaluate each time we evaluate
         self.batch_size = batch_size
         self.target_network_update_freq = target_network_update_freq
         self.learning_rate = learning_rate
@@ -317,6 +317,7 @@ class DBCQ(OffPolicyRLModel):
                 # the following validation can also be done via callback.
                 # in the future, will be used here only for OPE ?
                 if self.val_freq>0 and ((epoch+1) % self.val_freq) == 0:
+                    logger.info("evaluating on {0} episodes from env".format(self.n_eval_episodes))
                     if self.env is not None:
                         mean_reward,std_reward = online_policy_eval(self,self.env,n_eval_episodes=self.n_eval_episodes)
                         if writer is not None:

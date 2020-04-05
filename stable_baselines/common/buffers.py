@@ -303,19 +303,31 @@ class ReplayBuffer(object):
                             # we'll add it to the buffer in the info field as a dict:
                             # {'all_action_probabilities': str(numpy array of probabilities)}
         ep_name=episode_name+'_{0}'.format(ep_id)
+        obs_arr=np.zeros((num_transitions,obs_dim))
+        act_arr=[0]*num_transitions
+        rew_arr=[0]*num_transitions
+        obs_tp1_arr=np.zeros((num_transitions,obs_dim))
+        ep_name_arr=[episode_name]*num_transitions
+        ep_id_arr=[0]*num_transitions
+        t_arr=np.arange(num_transitions)
         for t in tqdm(range(num_transitions)):
             obs_t, action, reward, obs_tp1, done = self._storage[idx]
             # currently we're not saving the action probabilities. if we add it, it will be in the info field.
             # add the transition as a row in the dataset
             # {k:v for k,v in zip(df_cols,[a,aap,epn,eid,r,t]+list(obs))}
-            # row=pd.DataFrame({k:v for k,v in zip(df_cols,[action,act_prob,ep_name,ep_id,reward,t]+list(obs_t))})
-            # df = df.append(row,ignore_index=True)
-            df.loc[t] = [action, act_prob, ep_name, ep_id, reward, t] + list(obs_t)
+            obs_arr[t]=obs_t
+            act_arr[t]=action
+            rew_arr[t]=reward
+            obs_tp1_arr[t]=obs_tp1
+            ep_name_arr[t]=ep_name
+            ep_id_arr[t]=ep_id
             # the episode name is episode_name+'_{0}'.format(ep_id)
             idx = (idx + 1) % self._maxsize
             if done:
                 ep_id+=1
                 ep_name = episode_name + '_{0}'.format(ep_id)
+        df = pd.DataFrame({k: v for k, v in zip(df_cols, [act_arr, act_prob, ep_name_arr, ep_id_arr, rew_arr, t_arr] + [
+            obs_arr[:, c] for c in range(obs_dim)])})
         # df is ready. save to csv
         df.to_csv(filename)
         return

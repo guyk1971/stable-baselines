@@ -94,7 +94,7 @@ class DQNAgentParams(AgentParams):
         # batch_rl defaults:
         self.val_freq = 1  # num epochs between evaluations
         self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
-
+        self.n_eval_episodes = 100
 
         # other default params
         self.gamma = 0.99
@@ -375,6 +375,7 @@ class DBCQAgentParams(AgentParams):
                                                 # considered as candidates
                                                 # if gen_act_policy is KNN - the max distance from nearest neighbor
                                                 # s.t. actions that are farther will be thrown
+        self.n_eval_episodes = 100
         # other default params
         self.gamma = 0.99
         self.batch_size = 32

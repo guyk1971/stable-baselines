@@ -261,8 +261,8 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
     # assuming we save only the numpy arrays (not the obs_space and act_space)
     if save_path is not None:
         # np.savez(save_path, **numpy_dict)
-        logger.info("saving to experience as csv file: "+save_path)
-        replay_buffer.save_to_csv(save_path,os.path.splitext(os.path.basename(save_path))[0])
+        logger.info("saving to experience as csv file: "+save_path+'.csv')
+        replay_buffer.save_to_csv(save_path+'.csv',os.path.splitext(os.path.basename(save_path))[0])
 
     env.close()
     return numpy_dict

@@ -63,9 +63,9 @@ env_params.env_id = 'acrobot'
 
 
 # Test case 1: use RandomAgent to generate experience, save as csv and train dbcq agent on it:
-batch_experience_buffer = None
-batch_experience_trained_agent = None       # agent to load to generate experience
-batch_expert_params = RandomAgentParams()   # experience generating agent 
+# batch_experience_buffer = None
+# batch_experience_trained_agent = None       # agent to load to generate experience
+# batch_expert_params = RandomAgentParams()   # experience generating agent 
 
 # Test case 2: use new DQN to generate experience, save as csv and train dbcq agent on it:
 # batch_experience_buffer = None
@@ -78,9 +78,9 @@ batch_expert_params = RandomAgentParams()   # experience generating agent
 
 
 # Test case 3: load experience buffer from csv
-# batch_experience_buffer = '/home/gkoren2/share/Data/MLA/stbl/results/dbcq_acrobot_load_expert-27-02-2020_17-47-19/1/er_acrobot_dbcq.npz'
-# batch_experience_trained_agent = None       # agent to load to generate experience
-# batch_expert_params = None      # this is also the default. if not None, we'll train the agent prior to recording
+batch_experience_buffer = '/home/gkoren2/share/Data/MLA/stbl/erbufs/er_acrobot_random.csv'
+batch_experience_trained_agent = None       # agent to load to generate experience
+batch_expert_params = None      # this is also the default. if not None, we'll train the agent prior to recording
 
 
 # Test case 4: load pretrained agent to generate experience, save to csv and train on batch

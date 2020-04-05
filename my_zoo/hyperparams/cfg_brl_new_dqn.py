@@ -63,18 +63,18 @@ env_params.env_id = 'acrobot'
 
 
 # Test case 1: use RandomAgent to generate experience, save as csv and train dbcq agent on it:
-batch_experience_buffer = None
-batch_experience_trained_agent = None       # agent to load to generate experience
-batch_expert_params = RandomAgentParams()   # experience generating agent 
-
-# Test case 2: use new DQN to generate experience, save as csv and train dbcq agent on it:
 # batch_experience_buffer = None
 # batch_experience_trained_agent = None       # agent to load to generate experience
-# batch_expert_params = DQNAgentParams()
-# batch_expert_params.exploration_fraction=1.0      # explore for the whole timesteps
-# batch_expert_params.exploration_final_eps=0.01     # and always (i.e. with prob eps=1.0 ) explore
-# batch_expert_params.double_q = True
-# batch_expert_params.batch_size = 128
+# batch_expert_params = RandomAgentParams()   # experience generating agent 
+
+# Test case 2: use new DQN to generate experience, save as csv and train dbcq agent on it:
+batch_experience_buffer = None
+batch_experience_trained_agent = None       # agent to load to generate experience
+batch_expert_params = DQNAgentParams()
+batch_expert_params.exploration_fraction=1.0      # explore for the whole timesteps
+batch_expert_params.exploration_final_eps=0.01     
+batch_expert_params.double_q = True
+batch_expert_params.batch_size = 128
 
 
 # Test case 3: load experience buffer from csv

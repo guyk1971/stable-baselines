@@ -154,14 +154,12 @@ def create_experience_buffer(experiment_params,output_dir):
     experience_buffer = generate_experience_traj(model, save_path=exp_buf_filename, env=env,
                                                  n_timesteps_train=int(experiment_params.batch_expert_n_timesteps),
                                                  n_timesteps_record=experiment_params.batch_expert_steps_to_record)
-    logger.info('Saved experience buffer to ' + exp_buf_filename)
     env.close()
     return experience_buffer
 
 def load_or_create_experience_buffer(experiment_params,output_dir):
     # if we got an existing experience buffer, load from file and return it
-    if experiment_params.batch_experience_buffer and os.path.exists(experiment_params.batch_experience_buffer) and \
-        experiment_params.batch_experience_buffer.endswith('.csv'):
+    if experiment_params.batch_experience_buffer and os.path.exists(experiment_params.batch_experience_buffer):
         logger.info('loading experience buffer from '+experiment_params.batch_experience_buffer)
         experience_buffer = load_experience_traj(experiment_params.batch_experience_buffer)
         # experience_buffer = np.load(experiment_params.batch_experience_buffer,allow_pickle=True)
