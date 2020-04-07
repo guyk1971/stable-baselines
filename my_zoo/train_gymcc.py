@@ -4,8 +4,14 @@ train an agent on gym classic control environment.
 Supported environments :
 MLA Template Equivalent: train.train_on_env
 """
+############################
+# set the python path properly
 import os
 import sys
+proj_root=os.path.split(os.path.realpath(os.path.dirname(__file__)))[0]
+if proj_root not in sys.path:
+    sys.path.insert(0,proj_root)
+############################
 import time
 import argparse
 import importlib
@@ -271,6 +277,7 @@ def main():
 if __name__ == '__main__':
     suppress_tensorflow_warnings()
     main()
+    sys.path.remove(proj_root)
 
 
 
