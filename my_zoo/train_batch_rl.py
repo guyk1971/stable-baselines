@@ -8,7 +8,11 @@ MLA Template Equivalent: train.train_on_batch
 # set the python path properly
 import os
 import sys
-proj_root=os.path.split(os.path.realpath(os.path.dirname(__file__)))[0]
+path_to_curr_file=os.path.realpath(__file__)
+# path_to_dir=os.path.split(path_to_curr_file)[0]
+# path_to_par_dir=os.path.dirname(path_to_dir)
+# proj_root=os.path.split(path_to_dir)[0]
+proj_root=os.path.dirname(os.path.dirname(path_to_curr_file))
 if proj_root not in sys.path:
     sys.path.insert(0,proj_root)
 ############################
