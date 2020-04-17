@@ -1,5 +1,5 @@
 import numpy as np
-
+from tqdm import tqdm
 from stable_baselines.common.vec_env import VecEnv
 
 
@@ -29,7 +29,7 @@ def evaluate_policy(model, env, n_eval_episodes=10, deterministic=True,
         assert env.num_envs == 1, "You must pass only one environment when using this function"
 
     episode_rewards, episode_lengths = [], []
-    for _ in range(n_eval_episodes):
+    for _ in tqdm(range(n_eval_episodes)):
         obs = env.reset()
         done, state = False, None
         episode_reward = 0.0

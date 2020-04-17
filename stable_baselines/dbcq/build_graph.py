@@ -65,6 +65,8 @@ The functions in this file can are used to create the following functions:
 import tensorflow as tf
 from gym.spaces import MultiDiscrete
 import numpy as np
+import copy
+
 
 from stable_baselines.common import tf_util
 
@@ -168,8 +170,9 @@ def build_act(q_func, ob_space, ac_space, stochastic_ph,update_eps_ph, sess):
     return act, obs_phs
 
 
-def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, grad_norm_clipping=None,
-                gamma=1.0, scope="dbcq", reuse=None,param_noise=False, full_tensorboard_log=False):
+def build_train(q_func, gen_act_policy, ob_space, ac_space, sess, grad_norm_clipping=None,
+                gen_train_with_main=False, gamma=1.0, scope="dbcq", reuse=None,param_noise=False,
+                full_tensorboard_log=False):
     """
     Creates the train function:
 
@@ -181,6 +184,7 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
     :param optimizer: (tf.train.Optimizer) optimizer to use for the Q-learning objective.
     :param sess: (TensorFlow session) The current TensorFlow session
     :param grad_norm_clipping: (float) clip gradient norms to this value. If None no clipping is performed.
+    :param gen_train_with_main: (bool) if true, train generative model while training the main policy
     :param gamma: (float) discount rate.
     :param scope: (str or VariableScope) optional scope for variable_scope.
     :param reuse: (bool) whether or not the variables should be reused. To be able to reuse the scope must be given.
@@ -203,36 +207,57 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
         stochastic_ph = tf.placeholder(tf.bool, (), name="stochastic")
         update_eps_ph = tf.placeholder(tf.float32, (), name="update_eps")
         act_dist_thresh_ph = tf.placeholder(tf.float32, (), name="act_dist_thresh")
+        learning_rate_ph = tf.placeholder(tf.float32, (), name="learning_rate")
+
+    # define the optimizer inside this function as follows:
+    optimizer = tf.train.AdamOptimizer(learning_rate_ph)
+
 
     with tf.variable_scope(scope, reuse=reuse):
         if param_noise:
             print('Error: DBCQ doesnt yet support parameter noise. aborting')
             raise NotImplementedError
         else:
+            # the following will build a model with variable scope : scope/model
             act_f, obs_phs = build_act(q_func, ob_space, ac_space, stochastic_ph, update_eps_ph, sess)
 
         # q network evaluation
+        # the following will build a model whose input ph is in context scope/step_model/input
+        # but since we're in context that reuse and use outer_scope_getter, the network variables
+        # are shared with scope/model so we dont create new variables
         with tf.variable_scope("step_model", reuse=True, custom_getter=tf_util.outer_scope_getter("step_model")):
             step_model = q_func(sess, ob_space, ac_space, 1, 1, None, reuse=True, obs_phs=obs_phs)
         q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=tf.get_variable_scope().name + "/model")
 
         # target q network evaluation
+        # the following is creating a network with the scope/target_q_func/input and
+        # weights with scope scope/target_q_func/model
         with tf.variable_scope("target_q_func", reuse=False):
             target_policy = q_func(sess, ob_space, ac_space, 1, 1, None, reuse=False)
         target_q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
                                                scope=tf.get_variable_scope().name + "/target_q_func")
 
         # compute estimate of best possible value starting from state at t + 1
+        # the following will create a network with input scope/double_q/input and
+        # weights with scope scope/model so will share with the main model (online)
         with tf.variable_scope("double_q", reuse=True, custom_getter=tf_util.outer_scope_getter("double_q")):
             double_policy = q_func(sess, ob_space, ac_space, 1, 1, None, reuse=True)
+            # double_policy = q_func(sess, ob_space, ac_space, 1, 1, None, reuse=False)
             double_q_values = double_policy.q_values
             double_obs_ph = double_policy.obs_ph
 
         # generative action model network
+        # generate network with input scope/gen_act_model/input and weights scope/gen_act_model/model
         with tf.variable_scope("gen_act_model", reuse=False):
             gen_act_model = gen_act_policy(sess, ob_space, ac_space, 1, 1, None, reuse=False)
+            # generate network with input scope/gen_act_model/gen_online/input
+            # and weights scope/gen_act_model/model - so shared 
+            with tf.variable_scope("gen_online",reuse=True,custom_getter=tf_util.outer_scope_getter("gen_online")):
+                gen_act_online = gen_act_policy(sess, ob_space, ac_space, 1, 1, None, reuse=True)
         gen_act_model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
                                                scope=tf.get_variable_scope().name + "/gen_act_model")
+        # gen_optimizer = copy.deepcopy(optimizer)        # for online training use the same optimizer as the main network
+        gen_optimizer = tf.train.AdamOptimizer(learning_rate_ph)
 
 
 
@@ -257,7 +282,8 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
         q_tp1_best_masked = (1.0 - done_mask_ph) * q_tp1_best
 
         # q scores for actions which we know were selected in the given state.
-        q_t_selected = tf.reduce_sum(step_model.q_values * tf.one_hot(act_t_ph, n_actions), axis=1)
+        one_hot_actions = tf.one_hot(act_t_ph, n_actions)
+        q_t_selected = tf.reduce_sum(step_model.q_values * one_hot_actions, axis=1)
 
         # compute RHS of bellman equation
         q_t_selected_target = rew_t_ph + gamma * q_tp1_best_masked
@@ -269,12 +295,28 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
                                                                  trainable=False)
 
         # compute the error (potentially clipped)
-        # td_error = q_t_selected - tf.stop_gradient(q_t_selected_target)
-        td_error = q_t_selected - tf.stop_gradient(tf.reshape(q_t_selected_target_norm,(-1,)))
+        td_error = q_t_selected - tf.stop_gradient(q_t_selected_target)
+        # td_error = q_t_selected - tf.stop_gradient(tf.reshape(q_t_selected_target_norm,(-1,)))
         errors = tf_util.huber_loss(td_error)
         loss = tf.reduce_mean(errors)
         weighted_error = tf.reduce_mean(importance_weights_ph * errors)
+        losses = {'main':loss}
 
+        # compute the generative model loss and create the optimization op
+        optimization_ops=[]
+        if gen_train_with_main:
+            gen_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+                logits=gen_act_online.q_values,
+                labels=tf.stop_gradient(one_hot_actions)
+            )
+            gen_loss = tf.reduce_mean(gen_loss)
+            gen_optim_expr = gen_optimizer.minimize(gen_loss, var_list=gen_act_model_vars)
+            tf.summary.scalar("gen_online_loss",gen_loss)
+            losses.update({'gen':gen_loss})
+            optimization_ops.append(gen_optim_expr)
+
+
+        # create tensorboard summaries
         tf.summary.scalar("q_selected_target",tf.reduce_mean(q_t_selected_target))
         tf.summary.scalar("q_selected_target_norm", tf.reduce_mean(q_t_selected_target_norm))
         tf.summary.scalar("td_error", tf.reduce_mean(td_error))
@@ -290,11 +332,6 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
                                    sorted(target_q_func_vars, key=lambda v: v.name)):
             update_target_expr.append(var_target.assign(var))
         update_target_expr = tf.group(*update_target_expr)
-
-        # todo: create update operation for the generative model
-        # in case we want to learn it while training the agent...
-        update_gen_model = None
-
 
         # compute optimization op (potentially with gradient clipping)
         gradients = optimizer.compute_gradients(weighted_error, var_list=q_func_vars)
@@ -315,14 +352,16 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
             elif len(obs_phs[0].shape) == 1:
                 tf.summary.histogram('observation', obs_phs[0])
 
-    optimize_expr = optimizer.apply_gradients(gradients)
-
     summary = tf.summary.merge_all()
+
+    optimize_expr = optimizer.apply_gradients(gradients)
+    optimization_ops.append(optimize_expr)
 
     # Create callable functions
     train = tf_util.function(
         inputs=[
             obs_phs[0],
+            gen_act_online.obs_ph,          # for training the gen model together with the main policy
             act_t_ph,
             rew_t_ph,
             gen_act_model.obs_ph,
@@ -330,11 +369,12 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, optimizer, sess, gra
             double_obs_ph,
             done_mask_ph,
             importance_weights_ph,
-            act_dist_thresh_ph
+            act_dist_thresh_ph,
+            learning_rate_ph
         ],
-        outputs=[summary, loss],
-        updates=[optimize_expr]
+        outputs=[summary, losses],
+        updates=optimization_ops
     )
     update_target = tf_util.function([], [], updates=[update_target_expr])
 
-    return act_f, train, update_target, step_model, gen_act_model, update_gen_model
+    return act_f, train, update_target, step_model, gen_act_model

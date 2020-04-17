@@ -2,23 +2,26 @@
 train_gymcc.py
 train an agent on gym classic control environment.
 Supported environments :
-
+MLA Template Equivalent: train.train_on_env
 """
+############################
+# set the python path properly
 import os
 import sys
+path_to_curr_file=os.path.realpath(__file__)
+proj_root=os.path.dirname(os.path.dirname(path_to_curr_file))
+if proj_root not in sys.path:
+    sys.path.insert(0,proj_root)
+############################
 import time
 import argparse
 import importlib
-from functools import partial
 from collections import OrderedDict
 import gym
-import numpy as np
 import yaml
 from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
-from stable_baselines.common.cmd_util import make_atari_env
-from stable_baselines.common.vec_env import VecFrameStack, SubprocVecEnv, VecNormalize, DummyVecEnv
-from stable_baselines.common.noise import AdaptiveParamNoiseSpec, NormalActionNoise, OrnsteinUhlenbeckActionNoise
+from stable_baselines.common.vec_env import VecFrameStack
 import shutil
 
 try:
@@ -27,12 +30,10 @@ try:
 except ImportError:
     mpi4py = None
 
-from zoo.utils import make_env, ALGOS, linear_schedule, get_latest_run_id, get_wrapper_class, find_saved_model
+from zoo.utils import ALGOS
 from zoo.utils.hyperparams_opt import hyperparam_optimization
-from zoo.utils.noise import LinearNormalActionNoise
 
 from my_zoo.utils.common import *
-from my_zoo.hyperparams.default_config import CC_ENVS
 from my_zoo.utils.train import get_create_env,parse_agent_params
 
 
@@ -277,6 +278,7 @@ def main():
 if __name__ == '__main__':
     suppress_tensorflow_warnings()
     main()
+    sys.path.remove(proj_root)
 
 
 

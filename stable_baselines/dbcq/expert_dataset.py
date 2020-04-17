@@ -1,3 +1,6 @@
+#########################################################
+# DEPRECATED !! should be deleted
+#########################################################
 import os
 import warnings
 from typing import Dict
@@ -12,6 +15,10 @@ from stable_baselines.common.base_class import _UnvecWrapper
 from my_zoo.utils.common import title
 from tqdm import tqdm
 from stable_baselines.dbcq.replay_buffer import ReplayBuffer
+
+
+# note : this function is not necesseraly related to dbcq but more to batch_rl mode.
+# so it should be in a file batch_rl_utils.py
 
 def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=0,
                          n_timesteps_record=100000):
@@ -122,7 +129,8 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
 
     # assuming we save only the numpy arrays (not the obs_space and act_space)
     if save_path is not None:
-        np.savez(save_path, **numpy_dict)
+        # np.savez(save_path, **numpy_dict)
+        replay_buffer.save_to_csv(save_path,os.path.splitext(os.path.basename(save_path))[0])
 
     env.close()
     return numpy_dict

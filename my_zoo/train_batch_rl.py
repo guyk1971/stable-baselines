@@ -2,10 +2,22 @@
 train_batch_rl.py
 train an agent on gym classic control environment.
 Supported environments :
-
+MLA Template Equivalent: train.train_on_batch
 """
-# import os
+############################
+# set the python path properly
+import os
 import sys
+path_to_curr_file=os.path.realpath(__file__)
+# path_to_dir=os.path.split(path_to_curr_file)[0]
+# path_to_par_dir=os.path.dirname(path_to_dir)
+# proj_root=os.path.split(path_to_dir)[0]
+proj_root=os.path.dirname(os.path.dirname(path_to_curr_file))
+if proj_root not in sys.path:
+    sys.path.insert(0,proj_root)
+############################
+
+
 import time
 import argparse
 import importlib
@@ -17,9 +29,10 @@ import yaml
 import ast
 from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
-from stable_baselines.dbcq.expert_dataset import generate_experience_traj
+from my_zoo.utils.train import generate_experience_traj,load_experience_traj
 from my_zoo.utils.utils import ALGOS
 from stable_baselines.dbcq.dbcq import DBCQ
+from my_zoo.my_envs import L2PEnv
 import shutil
 
 
@@ -36,9 +49,6 @@ from my_zoo.utils.common import *
 from my_zoo.utils.train import get_create_env,parse_agent_params
 
 
-
-
-
 LOGGER_NAME=os.path.splitext(os.path.basename(__file__))[0]
 
 
@@ -46,7 +56,7 @@ def parse_cmd_line():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('exparams', type=str, help='experiment params file path')
-    parser.add_argument('-d','--gpuid',type=str,default='',help='gpu id or "cpu"')
+    parser.add_argument('-d','--gpuid',type=str,default='0',help='gpu id or "cpu"')
     parser.add_argument('--num_experiments', help='number of experiments', default=1,type=int)
     parser.add_argument('--seed', help='Random generator seed', type=int, default=1)
     parser.add_argument('-n', '--n_timesteps', help='Overwrite the number of timesteps', default=-1,type=int)
@@ -56,10 +66,14 @@ def parse_cmd_line():
 
 def env_make(n_envs,env_params,algo,seed):
     env_id = env_params.env_id
-    logger.info('using {0} instances of {1} :'.format(n_envs,env_id))
-    create_env = get_create_env(algo,seed,env_params)
-    env = create_env(n_envs)
+    logger.info('using {0} instances of {1} :'.format(n_envs, env_id))
+    if env_id=='L2P':
+        env = L2PEnv()
+    else:
+        create_env = get_create_env(algo,seed,env_params)
+        env = create_env(n_envs)
     return env
+
 
 
 def create_experience_buffer(experiment_params,output_dir):
@@ -152,7 +166,6 @@ def create_experience_buffer(experiment_params,output_dir):
     experience_buffer = generate_experience_traj(model, save_path=exp_buf_filename, env=env,
                                                  n_timesteps_train=int(experiment_params.batch_expert_n_timesteps),
                                                  n_timesteps_record=experiment_params.batch_expert_steps_to_record)
-    logger.info('Saved experience buffer to ' + exp_buf_filename)
     env.close()
     return experience_buffer
 
@@ -160,9 +173,8 @@ def load_or_create_experience_buffer(experiment_params,output_dir):
     # if we got an existing experience buffer, load from file and return it
     if experiment_params.batch_experience_buffer and os.path.exists(experiment_params.batch_experience_buffer):
         logger.info('loading experience buffer from '+experiment_params.batch_experience_buffer)
-        # experience_buffer = ReplayBuffer(experiment_params.batch_experience_agent_params.buffer_size)
-        # experience_buffer.load(experiment_params.batch_experience_buffer)
-        experience_buffer = np.load(experiment_params.batch_experience_buffer,allow_pickle=True)
+        experience_buffer = load_experience_traj(experiment_params.batch_experience_buffer)
+        # experience_buffer = np.load(experiment_params.batch_experience_buffer,allow_pickle=True)
         return experience_buffer
     # if we got to this line, we need to generate an experience buffer
     experience_buffer = create_experience_buffer(experiment_params,output_dir)
@@ -238,8 +250,7 @@ def run_experiment(experiment_params):
         n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
         # since the batch algorithm is currently only dbcq, no need to parse agent params
         # but we need to drop the algorithm from the parameters (as done in parse_agent_params)
-        # parse_agent_params(agent_hyperparams,n_actions,experiment_params.n_timesteps,logger)
-        del agent_hyperparams['algorithm']
+        parse_agent_params(agent_hyperparams,n_actions,experiment_params.n_timesteps)
 
         normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
         if normalize:
@@ -253,12 +264,12 @@ def run_experiment(experiment_params):
             logger.info("loading pretrained agent to continue training")
             # if policy is defined, delete as it will be loaded with the trained agent
             del agent_hyperparams['policy']
-            # model = ALGOS[algo].load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
-            model = DBCQ.load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
+            model = ALGOS[algo].load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
+            # model = DBCQ.load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
 
         else:  # create a model from scratch
-            # model = ALGOS[algo](env=env, replay_buffer=er_buf, **agent_hyperparams)
-            model = DBCQ(env=env, replay_buffer=er_buf, **agent_hyperparams)
+            model = ALGOS[algo](env=env, replay_buffer=er_buf, **agent_hyperparams)
+            # model = DBCQ(env=env, replay_buffer=er_buf, **agent_hyperparams)
 
         kwargs = {}
         if experiment_params.log_interval > -1:
@@ -334,3 +345,4 @@ def main():
 if __name__ == '__main__':
     suppress_tensorflow_warnings()
     main()
+    sys.path.remove(proj_root)

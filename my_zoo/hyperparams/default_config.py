@@ -2,7 +2,7 @@ import os
 import logging
 import numpy as np
 
-ALGO_IDS = ['a2c','acer','dqn','ddpg','sac','td3','ppo2']
+ALGO_IDS = ['a2c','acer','dqn','ddpg','sac','td3','ppo2','dbcq']
 # 'a2c': A2C,
 # 'acer': ACER,
 # 'acktr': ACKTR,
@@ -90,6 +90,11 @@ class DQNAgentParams(AgentParams):
         self.prioritized_replay_alpha = 0.6
         self.prioritized_replay = False
         self.param_noise = False
+
+        # batch_rl defaults:
+        self.val_freq = 1  # num epochs between evaluations
+        self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
+        self.n_eval_episodes = 100
 
         # other default params
         self.gamma = 0.99
@@ -361,9 +366,8 @@ class DBCQAgentParams(AgentParams):
         # Default parameters for DQN Agent
         self.algorithm = 'dbcq'
         self.policy = 'MlpPolicy'    # or 'CnnPolicy' or 'CustomDQNPolicy' - the main policy that we train
-        # self.buffer_size = 50000
         self.val_freq = 1                       # num epochs between evaluations
-        self.learning_rate = 1e-4
+        self.learning_rate = 1e-4               # can also be 'lin_<float>' e.g. 'lin_0.001'
         self.target_network_update_freq = 1   # number of epochs between target network updates
         self.param_noise = False
         self.act_distance_thresh = 0.3          # if gen_act_policy is Neural Net - corresponds to the threshold tau
@@ -371,6 +375,7 @@ class DBCQAgentParams(AgentParams):
                                                 # considered as candidates
                                                 # if gen_act_policy is KNN - the max distance from nearest neighbor
                                                 # s.t. actions that are farther will be thrown
+        self.n_eval_episodes = 100
         # other default params
         self.gamma = 0.99
         self.batch_size = 32
@@ -381,6 +386,8 @@ class DBCQAgentParams(AgentParams):
                                                 # if 'NN' the agent will use the same type of policy for the generative model
         self.gen_act_params = {'type': 'NN', 'n_epochs': 50, 'lr': 1e-3, 'train_frac': 0.7, 'batch_size': 64}
         # self.gen_act_params = {'type':'KNN','size': 1000}  # knn parameters
+        self.gen_train_with_main = False        # if True, continue to train the generative model while training the
+                                                # main agent
         self.n_cpu_tf_sess = None
         self.policy_kwargs = None
         return
