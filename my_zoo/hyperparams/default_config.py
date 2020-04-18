@@ -108,6 +108,56 @@ class DQNAgentParams(AgentParams):
         return
 
 
+class QRDQNAgentParams(AgentParams):
+    """
+    Parameters for DQN agent
+    The agent gets the following values in its construction:
+    policy,env
+    gamma = 0.99, learning_rate = 5e-4, buffer_size = 50000, exploration_fraction = 0.1,
+    exploration_final_eps = 0.02, exploration_initial_eps = 1.0, train_freq = 1, batch_size = 32, double_q = True,
+    learning_starts = 1000, target_network_update_freq = 500, prioritized_replay = False,
+    prioritized_replay_alpha = 0.6, prioritized_replay_beta0 = 0.4, prioritized_replay_beta_iters = None,
+    prioritized_replay_eps = 1e-6, param_noise = False,
+
+    n_cpu_tf_sess = None, verbose = 0, tensorboard_log = None, _init_setup_model = True, policy_kwargs = None,
+    full_tensorboard_log = False, seed = None
+    """
+    def __init__(self):
+        super(QRDQNAgentParams, self).__init__()
+        # Default parameters for DQN Agent
+        self.algorithm = 'qrdqn'
+
+        self.policy = 'MlpPolicy'    # or 'CnnPolicy' or 'CustomDQNPolicy'
+        self.buffer_size = 50000
+        self.learning_rate = 1e-4
+        self.learning_starts = 1000
+        self.target_network_update_freq = 500
+        self.train_freq = 1
+        self.exploration_initial_eps = 1.0
+        self.exploration_final_eps = 0.02
+        self.exploration_fraction = 0.1
+        self.prioritized_replay_alpha = 0.6
+        self.prioritized_replay = False
+        self.param_noise = False
+        self.n_atoms = 50
+
+        # batch_rl defaults:
+        self.val_freq = 1  # num epochs between evaluations
+        self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
+        self.n_eval_episodes = 100
+
+        # other default params
+        self.gamma = 0.99
+        self.batch_size = 32
+        self.double_q = False
+        self.prioritized_replay_beta0 = 0.4
+        self.prioritized_replay_beta_iters = None
+        self.prioritized_replay_eps = 1e-6
+        self.n_cpu_tf_sess = None
+        self.policy_kwargs = None
+        return
+
+
 class PPO2AgentParams(AgentParams):
     """
     PPO2AgentParams

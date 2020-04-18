@@ -66,7 +66,7 @@ import tensorflow as tf
 from gym.spaces import MultiDiscrete
 
 from stable_baselines.common import tf_util
-from stable_baselines.qrdqn.policies import pick
+from stable_baselines.qrdqn.policies import pick_action
 
 
 def scope_vars(scope, trainable_only=False):
@@ -146,11 +146,11 @@ def build_act(q_func, ob_space, ac_space, stochastic_ph, update_eps_ph, sess):
 
     policy = q_func(sess, ob_space, ac_space, 1, 1, None)
     obs_phs = (policy.obs_ph, policy.processed_obs)
-    deterministic_actions = tf.argmax(policy.q_values, axis=1)
+    deterministic_actions = pick_action(policy.q_values)
 
     batch_size = tf.shape(policy.obs_ph)[0]
     n_actions = ac_space.nvec if isinstance(ac_space, MultiDiscrete) else ac_space.n
-    random_actions = tf.random_uniform(tf.stack([batch_size]), minval=0, maxval=n_actions, dtype=tf.int64)
+    random_actions = tf.random_uniform(tf.stack([batch_size]), minval=0, maxval=n_actions, dtype=tf.int32)
     chose_random = tf.random_uniform(tf.stack([batch_size]), minval=0, maxval=1, dtype=tf.float32) < eps
     stochastic_actions = tf.where(chose_random, random_actions, deterministic_actions)
 
@@ -165,7 +165,7 @@ def build_act(q_func, ob_space, ac_space, stochastic_ph, update_eps_ph, sess):
         return _act(obs, stochastic, update_eps)
     return act, obs_phs,policy.n_atoms
 
-
+# QRDQN - parameter noise is currently not supported
 def build_act_with_param_noise(q_func, ob_space, ac_space, stochastic_ph, update_eps_ph, sess,
                                param_noise_filter_func=None):
     """
@@ -325,7 +325,7 @@ def build_act_with_param_noise(q_func, ob_space, ac_space, stochastic_ph, update
 
 
 def build_train(q_func, ob_space, ac_space, optimizer, sess, grad_norm_clipping=None,
-                gamma=1.0, double_q=True, scope="qrdqn", reuse=None,
+                gamma=1.0, double_q=False, scope="qrdqn", reuse=None,
                 param_noise=False, param_noise_filter_func=None, full_tensorboard_log=False):
     """
     Creates the train function:
@@ -394,33 +394,28 @@ def build_train(q_func, ob_space, ac_space, optimizer, sess, grad_norm_clipping=
         done_mask_ph = tf.placeholder(tf.float32, [None], name="done")
         importance_weights_ph = tf.placeholder(tf.float32, [None], name="weight")
 
-        # q scores for actions which we know were selected in the given state.
-        q_t_selected = tf.reduce_sum(step_model.q_values * tf.one_hot(act_t_ph, n_actions), axis=1)
         # quantiles for actions which we know were selected in the given state.
         quant_t_selected = gather_along_second_axis(step_model, act_t_ph)
         quant_t_selected.set_shape([None, n_atoms])
 
-
-
         # compute estimate of best possible value starting from state at t + 1
         if double_q:
-            # todo: add support in quantile regression
-            q_tp1_best_using_online_net = tf.argmax(double_q_values, axis=1)
-            q_tp1_best = tf.reduce_sum(target_policy.q_values * tf.one_hot(q_tp1_best_using_online_net, n_actions), axis=1)
+            a_best = pick_action(double_q_values)
         else:
-            # q_tp1_best = tf.reduce_max(target_policy.q_values, axis=1)
-            a_best = tf.math.argmax(target_policy.q_values,axis=-1)
-            q_tp1_best = gather_along_second_axis(target_policy.q_values,a_best)
-            q_tp1_best.set_shape([None,n_atoms])
+            a_best = pick_action(target_policy.q_values)
 
-        # q_tp1_best_masked = (1.0 - done_mask_ph) * q_tp1_best
-        q_tp1_best_masked = tf.einsum('ij,i->ij', q_tp1_best, 1. - done_mask_ph)
+        quant_tp1_best = gather_along_second_axis(target_policy.q_values,a_best)
+        quant_tp1_best.set_shape([None,n_atoms])
+
+        # quant_tp1_best_masked[i,j]= quant_tp1_best[i,j]*(1-done_mask_ph)[i]
+        quant_tp1_best_masked = tf.einsum('ij,i->ij', quant_tp1_best, 1. - done_mask_ph)
 
         # compute RHS of bellman equation
-        q_t_selected_target = rew_t_ph[:,tf.newaxis] + gamma * q_tp1_best_masked
+        quant_target = rew_t_ph[:,tf.newaxis] + gamma * quant_tp1_best_masked
 
         # compute the error (potentially clipped)
-        td_error = tf.stop_gradient(q_t_selected_target) - q_t_selected
+        td_error = tf.stop_gradient(quant_target[:,None,:]) - quant_t_selected[:,:,None]
+
         negative_indicator = tf.cast(td_error<0,tf.float32)
         tau = tf.range(0,n_atoms+1,dtype=tf.float32,name='tau')*1./n_atoms
         tau_hat = tf.identity((tau[:-1]+tau[1:])/2,name='tau_hat')
@@ -468,6 +463,8 @@ def build_train(q_func, ob_space, ac_space, optimizer, sess, grad_norm_clipping=
     summary = tf.summary.merge_all()
 
     # Create callable functions
+    # will be called from learn as follows:
+    # _, td_errors = self._train_step(obses_t, actions, rewards, obses_tp1, obses_tp1, dones, weights, sess=self.sess)
     train = tf_util.function(
         inputs=[
             obs_phs[0],
@@ -482,5 +479,5 @@ def build_train(q_func, ob_space, ac_space, optimizer, sess, grad_norm_clipping=
         updates=[optimize_expr]
     )
     update_target = tf_util.function([], [], updates=[update_target_expr])
-    quant_values = tf_util.function([obs_phs[0]],step_model)
+    quant_values = tf_util.function([obs_phs[0]],step_model.q_values)
     return act_f, train, update_target, step_model, {'quant_values':quant_values}

@@ -1,7 +1,6 @@
 from stable_baselines.qrdqn.policies import MlpPolicy, CnnPolicy, LnMlpPolicy, LnCnnPolicy
 from stable_baselines.qrdqn.build_graph import build_act, build_train  # noqa
 from stable_baselines.qrdqn.qrdqn import QRDQN
-from stable_baselines.qrdqn.replay_buffer import ReplayBuffer, PrioritizedReplayBuffer  # noqa
 
 
 def wrap_atari_dqn(env):

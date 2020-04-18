@@ -58,15 +58,14 @@ class QRDQN(OffPolicyRLModel):
         If None, the number of cpu of the current machine will be used.
     """
     def __init__(self, policy, env, n_atoms=50, gamma=0.99, learning_rate=5e-4, buffer_size=50000, exploration_fraction=0.1,
-                 exploration_final_eps=0.02, exploration_initial_eps=1.0, train_freq=1, batch_size=32, double_q=True,
+                 exploration_final_eps=0.02, exploration_initial_eps=1.0, train_freq=1, batch_size=32, double_q=False,
                  learning_starts=1000, target_network_update_freq=500, prioritized_replay=False,
                  prioritized_replay_alpha=0.6, prioritized_replay_beta0=0.4, prioritized_replay_beta_iters=None,
                  prioritized_replay_eps=1e-6, param_noise=False,
                  n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
                  _init_setup_model=True, policy_kwargs=None, full_tensorboard_log=False, seed=None):
 
-        # TODO: replay_buffer refactoring
-        super(QRDQN, self).__init__(policy=policy, env=env, replay_buffer=None, verbose=verbose, policy_base=DQNPolicy,
+        super(QRDQN, self).__init__(policy=policy, env=env, replay_buffer=None, verbose=verbose, policy_base=QRDQNPolicy,
                                   requires_vec_env=False, policy_kwargs=policy_kwargs, seed=seed, n_cpu_tf_sess=n_cpu_tf_sess)
 
         self.param_noise = param_noise
@@ -108,11 +107,19 @@ class QRDQN(OffPolicyRLModel):
             self.setup_model()
 
     def _get_pretrain_placeholders(self):
+        # this function is used to assist in initializing the model pre-training with behavioral cloning
+        # how to update the quantiles? all quantiles get the mean value ?
         policy = self.step_model
         return policy.obs_ph, tf.placeholder(tf.int32, [None]), policy.q_values
 
-    def setup_model(self):
+    def pretrain(self, dataset, n_epochs=10, learning_rate=1e-4, adam_epsilon=1e-8, val_interval=None):
+        # super(QRDQN,self).pretrain(dataset, n_epochs=n_epochs, learning_rate=learning_rate,
+        #          adam_epsilon=adam_epsilon, val_interval=val_interval)
+        raise NotImplementedError("QRDQN pretrain not supported")
+        # return self
 
+
+    def setup_model(self):
         with SetVerbosity(self.verbose):
             assert not isinstance(self.action_space, gym.spaces.Box), \
                 "Error: DQN cannot output a gym.spaces.Box action space."
@@ -363,6 +370,7 @@ class QRDQN(OffPolicyRLModel):
     def save(self, save_path, cloudpickle=False):
         # params
         data = {
+            "n_atoms": self.n_atoms,
             "double_q": self.double_q,
             "param_noise": self.param_noise,
             "learning_starts": self.learning_starts,

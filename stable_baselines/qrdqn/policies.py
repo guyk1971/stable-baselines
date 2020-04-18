@@ -8,6 +8,21 @@ from stable_baselines.common.policies import BasePolicy, nature_cnn
 def quant_to_q(p_values):
     return tf.reduce_mean(p_values, axis=-1)
 
+def pick_action(p_values,deterministic=True):
+    q_values = quant_to_q(p_values)
+    if deterministic:        # i.e. we pick action deterministically - using q_values
+        actions = tf.argmax(q_values, axis=-1, output_type=tf.int32)
+    else:   # if stochastic, use action_proba
+        actions_proba = tf.nn.softmax(q_values)
+        n_actions = q_values.shape[-1]
+        # Unefficient sampling
+        # maybe with Gumbel-max trick ? (http://amid.fish/humble-gumbel)
+        actions = np.zeros((len(p_values),), dtype=np.int32)
+        for action_idx in range(len(p_values)):
+            actions[action_idx] = np.random.choice(n_actions, p=actions_proba[action_idx])
+    return actions
+
+
 
 class QRDQNPolicy(BasePolicy):
     """
@@ -162,17 +177,18 @@ class FeedForwardPolicy(QRDQNPolicy):
         :param deterministic:
         :return:
         '''
-        q_values, actions_proba = self.sess.run([self.q_values, self.policy_proba], {self.obs_ph: obs})
-        if deterministic:
-            actions = np.argmax(q_values, axis=1)
-        else:
-            # Unefficient sampling
-            # TODO: replace the loop
-            # maybe with Gumbel-max trick ? (http://amid.fish/humble-gumbel)
-            actions = np.zeros((len(obs),), dtype=np.int64)
-            for action_idx in range(len(obs)):
-                actions[action_idx] = np.random.choice(self.n_actions, p=actions_proba[action_idx])
-
+        # q_values, actions_proba = self.sess.run([self.q_values, self.policy_proba], {self.obs_ph: obs})
+        # if deterministic:
+        #     actions = pick_action(q_values)
+        # else:
+        #     # Unefficient sampling
+        #     # TODO: replace the loop
+        #     # maybe with Gumbel-max trick ? (http://amid.fish/humble-gumbel)
+        #     actions = np.zeros((len(obs),), dtype=np.int64)
+        #     for action_idx in range(len(obs)):
+        #         actions[action_idx] = np.random.choice(self.n_actions, p=actions_proba[action_idx])
+        q_values = self.sess.run([self.q_values], {self.obs_ph: obs})
+        actions=pick_action(q_values,deterministic)
         return actions, q_values, None
 
     def proba_step(self, obs, state=None, mask=None):
