@@ -1,6 +1,6 @@
 from my_zoo.hyperparams.default_config import *
 # from zoo.utils import CustomDQNPolicy
-from stable_baselines.deepq import MlpPolicy
+from stable_baselines.dbcq import MlpPolicy
 
 ##########################################################
 # Env                                                    #

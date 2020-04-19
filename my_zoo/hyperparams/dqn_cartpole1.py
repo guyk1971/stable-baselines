@@ -1,6 +1,6 @@
 from my_zoo.hyperparams.default_config import DQNAgentParams,ExperimentParams, EnvParams
 from stable_baselines.deepq import MlpPolicy
-from zoo.utils import CustomDQNPolicy
+from my_zoo.utils.utils import CustomDQNPolicy
 
 
 #################
