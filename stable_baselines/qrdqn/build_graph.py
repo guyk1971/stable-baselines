@@ -423,8 +423,10 @@ def build_train(q_func, ob_space, ac_space, optimizer, sess, grad_norm_clipping=
         errors = tf_util.huber_loss(td_error)
         quant_weights = tf.abs(tau_hat-negative_indicator)
         quantile_loss = quant_weights * errors
-
-        weighted_error = tf.reduce_mean(importance_weights_ph * quantile_loss)
+        wgt_quantile_loss = importance_weights_ph * quantile_loss
+        # weighted_error = tf.reduce_mean(wgt_quantile_loss)
+        # todo: error in the above line. solve once supporting prioritized experience replay. meanwhile:...
+        weighted_error = tf.reduce_mean(quantile_loss)
 
         tf.summary.scalar("td_error", tf.reduce_mean(td_error))
         tf.summary.scalar("loss", weighted_error)

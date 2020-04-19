@@ -87,7 +87,7 @@ class QRDQN(OffPolicyRLModel):
         self.tensorboard_log = tensorboard_log
         self.full_tensorboard_log = full_tensorboard_log
         self.double_q = double_q
-        self.n_atoms = n_atoms
+        self.n_atoms = n_atoms      # todo: probably not needed here. should be fed through policy_kwargs
 
 
         self.graph = None

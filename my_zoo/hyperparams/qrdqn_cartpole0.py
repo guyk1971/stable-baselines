@@ -25,7 +25,7 @@ agent_params.buffer_size = 50000
 agent_params.exploration_final_eps = 0.02
 agent_params.exploration_fraction = 0.1
 agent_params.n_atoms = 10
-
+agent_params.policy_kwargs = {'dueling':False,'n_atoms': agent_params.n_atoms, 'layers': [64]}
 
 #################
 # Experiment    #
