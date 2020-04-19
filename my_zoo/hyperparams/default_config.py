@@ -142,9 +142,9 @@ class QRDQNAgentParams(AgentParams):
         self.n_atoms = 50
 
         # batch_rl defaults:
-        self.val_freq = 1  # num epochs between evaluations
-        self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
-        self.n_eval_episodes = 100
+        # self.val_freq = 1  # num epochs between evaluations
+        # self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
+        # self.n_eval_episodes = 100
 
         # other default params
         self.gamma = 0.99

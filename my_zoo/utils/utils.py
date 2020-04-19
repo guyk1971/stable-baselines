@@ -25,6 +25,7 @@ from stable_baselines.bench import Monitor
 from stable_baselines import logger
 from stable_baselines import PPO2, A2C, ACER, ACKTR, DQN, HER, SAC, TD3
 from stable_baselines.dbcq.dbcq import DBCQ
+from stable_baselines.qrdqn.qrdqn import QRDQN
 # DDPG and TRPO require MPI to be installed
 if mpi4py is None:
     DDPG, TRPO = None, None
@@ -47,7 +48,8 @@ ALGOS = {
     'ppo2': PPO2,
     'trpo': TRPO,
     'td3': TD3,
-    'dbcq':DBCQ
+    'dbcq':DBCQ,
+    'qrdqn':QRDQN
 }
 
 

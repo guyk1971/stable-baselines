@@ -6,7 +6,7 @@ from stable_baselines.qrdqn import MlpPolicy
 # Env           #
 #################
 env_params = EnvParams()
-env_params.env_id = 'cartpole0'
+env_params.env_id = 'cartpole'
 
 #################
 # Policy        #

@@ -395,7 +395,7 @@ def build_train(q_func, ob_space, ac_space, optimizer, sess, grad_norm_clipping=
         importance_weights_ph = tf.placeholder(tf.float32, [None], name="weight")
 
         # quantiles for actions which we know were selected in the given state.
-        quant_t_selected = gather_along_second_axis(step_model, act_t_ph)
+        quant_t_selected = gather_along_second_axis(step_model.q_values, act_t_ph)
         quant_t_selected.set_shape([None, n_atoms])
 
         # compute estimate of best possible value starting from state at t + 1

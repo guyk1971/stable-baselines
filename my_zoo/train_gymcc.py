@@ -30,7 +30,7 @@ try:
 except ImportError:
     mpi4py = None
 
-from zoo.utils import ALGOS
+from my_zoo.utils.utils import ALGOS
 from zoo.utils.hyperparams_opt import hyperparam_optimization
 
 from my_zoo.utils.common import *

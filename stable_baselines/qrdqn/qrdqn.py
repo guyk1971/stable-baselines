@@ -144,7 +144,7 @@ class QRDQN(OffPolicyRLModel):
 
                 optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
 
-                self.act, self._train_step, self.update_target, self.step_model = build_train(
+                self.act, self._train_step, self.update_target, self.step_model,_ = build_train(
                     q_func=partial(self.policy, **self.policy_kwargs),
                     ob_space=self.observation_space,
                     ac_space=self.action_space,
