@@ -1,5 +1,5 @@
 from my_zoo.hyperparams.default_config import DQNAgentParams,ExperimentParams, EnvParams
-from zoo.utils import CustomDQNPolicy
+from my_zoo.utils.utils import CustomDQNPolicy
 
 ##########################################################
 # Env                                                    #

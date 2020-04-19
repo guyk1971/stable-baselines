@@ -17,7 +17,8 @@ try:
 except ImportError:
     mpi4py = None
 
-from stable_baselines.deepq.policies import FeedForwardPolicy
+from stable_baselines.deepq.policies import FeedForwardPolicy as DQNFFPolicy
+from stable_baselines.qrdqn.policies import FeedForwardPolicy as QRDQNFFPolicy
 from stable_baselines.common.policies import FeedForwardPolicy as BasePolicy
 from stable_baselines.common.policies import register_policy
 from stable_baselines.sac.policies import FeedForwardPolicy as SACPolicy
@@ -25,6 +26,7 @@ from stable_baselines.bench import Monitor
 from stable_baselines import logger
 from stable_baselines import PPO2, A2C, ACER, ACKTR, DQN, HER, SAC, TD3
 from stable_baselines.dbcq.dbcq import DBCQ
+from stable_baselines.qrdqn.qrdqn import QRDQN
 # DDPG and TRPO require MPI to be installed
 if mpi4py is None:
     DDPG, TRPO = None, None
@@ -47,18 +49,27 @@ ALGOS = {
     'ppo2': PPO2,
     'trpo': TRPO,
     'td3': TD3,
-    'dbcq':DBCQ
+    'dbcq':DBCQ,
+    'qrdqn':QRDQN
 }
 
 
 # ================== Custom Policies =================
 
-class CustomDQNPolicy(FeedForwardPolicy):
+class CustomDQNPolicy(DQNFFPolicy):
     def __init__(self, *args, **kwargs):
         super(CustomDQNPolicy, self).__init__(*args, **kwargs,
                                               layers=[64],
                                               layer_norm=True,
                                               feature_extraction="mlp")
+
+class CustomQRDQNPolicy(QRDQNFFPolicy):
+    def __init__(self, *args, **kwargs):
+        super(CustomQRDQNPolicy, self).__init__(*args, **kwargs,
+                                              layers=[64],
+                                              layer_norm=True,
+                                              feature_extraction="mlp")
+
 
 
 class CustomMlpPolicy(BasePolicy):
