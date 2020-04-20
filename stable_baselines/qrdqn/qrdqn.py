@@ -93,7 +93,7 @@ class QRDQN(OffPolicyRLModel):
         self.tensorboard_log = tensorboard_log
         self.full_tensorboard_log = full_tensorboard_log
         self.double_q = double_q
-        self.n_atoms = n_atoms      # todo: probably not needed here. should be fed through policy_kwargs
+        self.n_atoms = n_atoms
         self.buffer_train_fraction = buffer_train_fraction      # for batch_rl
         self.val_freq = val_freq            # batch_rl : >0  for built in validation (i.e not through callback)
         self.n_eval_episodes = n_eval_episodes  # number of episodes to evaluate each time we evaluate
@@ -165,6 +165,13 @@ class QRDQN(OffPolicyRLModel):
                 test_policy = self.policy
             assert issubclass(test_policy, QRDQNPolicy), "Error: the input policy for the QRDQN model must be " \
                                                        "an instance of QRDQNPolicy."
+
+            n_atoms = self.policy_kwargs.get('n_atoms',self.n_atoms)
+            if n_atoms != self.n_atoms:
+                logger.warn('n_atoms parameter conflict. overriding with constructor value {0}'.format(self.n_atoms))
+            self.policy_kwargs['n_atoms']=self.n_atoms
+
+
 
             self.graph = tf.Graph()
             with self.graph.as_default():
