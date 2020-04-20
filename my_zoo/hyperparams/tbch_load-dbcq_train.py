@@ -1,3 +1,7 @@
+# tbch_load_expert_agent.py
+# template for loading pretrained agent, possibly train further, and use its buffer to train an agent in batch mode
+# in this example: pretrained expert is DBCQ , agent is a new DBCQ
+
 from my_zoo.hyperparams.default_config import *
 from stable_baselines.deepq import MlpPolicy as dqn_MlpPolicy
 from stable_baselines.dbcq import MlpPolicy as dbcq_MlpPolicy
@@ -78,15 +82,15 @@ env_params.env_id = 'acrobot'
 
 
 # Test case 3: load experience buffer from csv
-batch_experience_buffer = batch_experience_buffer = '/home/gkoren2/share/Data/MLA/stbl/erbufs/er_acrobot_dqn.csv'
-batch_experience_trained_agent = None       # agent to load to generate experience
-batch_expert_params = None      # this is also the default. if not None, we'll train the agent prior to recording
+# batch_experience_buffer = '/home/gkoren2/share/Data/MLA/stbl/results/dbcq_acrobot_load_expert-27-02-2020_17-47-19/1/er_acrobot_dbcq.npz'
+# batch_experience_trained_agent = None       # agent to load to generate experience
+# batch_expert_params = None      # this is also the default. if not None, we'll train the agent prior to recording
 
 
 # Test case 4: load pretrained agent to generate experience, save to csv and train on batch
-# batch_experience_buffer = None
-# batch_experience_trained_agent = '/home/gkoren2/share/Data/MLA/stbl/results/dbcq_acrobot-27-02-2020_15-50-55/1/model_params.zip'
-# batch_expert_params = DBCQAgentParams()      # if we use pre trained, we need to provide corresponding agent parameters
+batch_experience_buffer = None
+batch_experience_trained_agent = '/home/gkoren2/share/Data/MLA/stbl/results/dbcq_acrobot-27-02-2020_15-50-55/1/model_params.zip'
+batch_expert_params = DBCQAgentParams()      # if we use pre trained, we need to provide corresponding agent parameters
 
 
 ##########################################################

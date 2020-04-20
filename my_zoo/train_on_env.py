@@ -32,9 +32,9 @@ except ImportError:
 
 from my_zoo.utils.utils import ALGOS
 from zoo.utils.hyperparams_opt import hyperparam_optimization
-
+from stable_baselines.gail import ExpertDataset
 from my_zoo.utils.common import *
-from my_zoo.utils.train import get_create_env,parse_agent_params
+from my_zoo.utils.train import get_create_env,parse_agent_params,generate_experience_traj,load_experience_traj
 
 
 
@@ -137,7 +137,6 @@ def run_experiment(experiment_params):
     # parse algorithm
     algo = agent_hyperparams['algorithm']
 
-
     if experiment_params.verbose>0:
         experiment_params.agent_params.verbose = experiment_params.verbose
         experiment_params.agent_params.tensorboard_log = output_dir
@@ -156,20 +155,21 @@ def run_experiment(experiment_params):
 
     #####################
     # create the agent
-    if ALGOS[algo] is None:
-        raise ValueError('{} requires MPI to be installed'.format(algo))
-    # n_actions = env.action_space.shape[0]
-    n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
-    parse_agent_params(agent_hyperparams,n_actions,experiment_params.n_timesteps)
-
-    # todo: handle the case of "her" wrapper.
-    # todo : add support in hyper parameter search using optuna. put parameters in configuration files
-    if experiment_params.hp_optimize:
-        # do_hpopt(algo,create_env,experiment_params,output_dir)
-        logger.warn("hyper parameter optimization is not yet supported")
+    if algo=='random':      # if we simply need a random agent, we're creating a callable object for model
+        def model(obs,gymenv=env):
+            action = gymenv.action_space.sample()
+            return action
     else:
+        if ALGOS[algo] is None:
+            raise ValueError('{} requires MPI to be installed'.format(algo))
+        # n_actions = env.action_space.shape[0]
+        n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
+        parse_agent_params(agent_hyperparams,n_actions,experiment_params.n_timesteps)
+        if experiment_params.hp_optimize:
+            # do_hpopt(algo,create_env,experiment_params,output_dir)
+            raise NotImplementedError('hyper parameter optimization is not yet supported')
         normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
-        trained_agent = experiment_params.trained_agent
+        trained_agent = experiment_params.trained_agent_model_file
         if trained_agent:
             valid_extension = trained_agent.endswith('.pkl') or trained_agent.endswith('.zip')
             assert valid_extension and os.path.isfile(trained_agent), \
@@ -177,6 +177,7 @@ def run_experiment(experiment_params):
             logger.info("loading pretrained agent to continue training")
             # if policy is defined, delete as it will be loaded with the trained agent
             del agent_hyperparams['policy']
+            del agent_hyperparams['policy_kwargs']
             model = ALGOS[algo].load(trained_agent, env=env,**agent_hyperparams)
             exp_folder = trained_agent[:-4]
 
@@ -187,33 +188,52 @@ def run_experiment(experiment_params):
         else:       # create a model from scratch
             model = ALGOS[algo](env=env, **agent_hyperparams)
 
+        # check if pretrain(with behavioral cloning) is needed
+        if experiment_params.experience_dataset and experiment_params.pretrain_epochs>0:
+            logger.info("doing pre-training")
+            experience_buffer = load_experience_traj(experiment_params.experience_dataset)
+            dataset = ExpertDataset(traj_data=experience_buffer, train_fraction=0.8, batch_size=32,
+                                    sequential_preprocessing=True)
+            model.pretrain(dataset, n_epochs=experiment_params.pretrain_epochs,
+                           learning_rate=experiment_params.pretrain_lr,
+                           val_interval=int(experiment_params.pretrain_epochs/5))
+
         kwargs = {}
         if experiment_params.log_interval > -1:
             kwargs = {'log_interval': experiment_params.log_interval}
+        if experiment_params.n_timesteps>0:
+            logger.info('training the agent')
+            model.learn(int(experiment_params.n_timesteps), **kwargs)
+            # Save trained model
+            save_path = output_dir
+            params_path = "{}/{}".format(save_path, 'model_params')
+            os.makedirs(params_path, exist_ok=True)
+            # Only save worker of rank 0 when using mpi
+            if rank == 0:
+                logger.info("Saving to {}".format(save_path))
+                model.save(params_path)
+                # Save hyperparams
+                # note that in order to save as yaml I need to avoid using classes in the definition.
+                # e.g. CustomDQNPolicy will not work. I need to put a string and parse it later
+                with open(os.path.join(output_dir, 'config.yml'), 'w') as f:
+                    yaml.dump(saved_hyperparams, f)
 
-        model.learn(int(experiment_params.n_timesteps), **kwargs)
+                if normalize:
+                    # Unwrap
+                    if isinstance(env, VecFrameStack):
+                        env = env.venv
+                    # Important: save the running average, for testing the agent we need that normalization
+                    env.save_running_average(params_path)
+    # from now on we treat the trained agent as expert.
+    # check if we need to create expert trajectory buffer
+    if experiment_params.expert_steps_to_record > 0:
+        exp_agent_algo = algo
+        exp_buf_filename = 'er_'+experiment_params.env_params.env_id+'_'+exp_agent_algo+'_'+str(experiment_params.expert_steps_to_record)
+        exp_buf_filename = os.path.join(output_dir,exp_buf_filename)
+        logger.info('Generating expert experience buffer with ' + exp_agent_algo)
+        _ = generate_experience_traj(model, save_path=exp_buf_filename, env=env,
+                                     n_timesteps_record=experiment_params.expert_steps_to_record)
 
-        # Save trained model
-        save_path = output_dir
-        params_path = "{}/{}".format(save_path, 'model_params')
-        os.makedirs(params_path, exist_ok=True)
-
-        # Only save worker of rank 0 when using mpi
-        if rank == 0:
-            logger.info("Saving to {}".format(save_path))
-            model.save(params_path)
-            # Save hyperparams
-            # note that in order to save as yaml I need to avoid using classes in the definition.
-            # e.g. CustomDQNPolicy will not work. I need to put a string and parse it later
-            with open(os.path.join(output_dir, 'config.yml'), 'w') as f:
-                yaml.dump(saved_hyperparams, f)
-
-            if normalize:
-                # Unwrap
-                if isinstance(env, VecFrameStack):
-                    env = env.venv
-                # Important: save the running average, for testing the agent we need that normalization
-                env.save_running_average(params_path)
     logger.info(title("completed experiment seed {seed}",30))
     return
 

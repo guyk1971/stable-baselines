@@ -29,7 +29,7 @@ import yaml
 import ast
 from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
-from my_zoo.utils.train import generate_experience_traj,load_experience_traj
+from my_zoo.utils.train import load_experience_traj,env_make,create_experience_buffer
 from my_zoo.utils.utils import ALGOS
 from stable_baselines.dbcq.dbcq import DBCQ
 from my_zoo.my_envs import L2PEnv
@@ -75,106 +75,11 @@ def env_make(n_envs,env_params,algo,seed):
     return env
 
 
-
-def create_experience_buffer(experiment_params,output_dir):
-    '''
-    uses the batch_experience_agent to create an experience buffer in a format that can be wrapped by ExpertData
-    :param experiment_params: to extract tehe parameters of the batch_experience_agent
-    :param output_dir: location of where to save the experience buffer
-    :return: experience_buffer that can be consumed (wrapped) by ExpertData
-    '''
-
-
-    trained_agent_params_file = experiment_params.batch_experience_trained_agent
-    if trained_agent_params_file:
-        trained_agent_params_folder=os.path.dirname(os.path.realpath(trained_agent_params_file))
-        yml_filename = os.path.join(trained_agent_params_folder,'config.yml')
-        with open(yml_filename, 'r') as f:
-             cfg = yaml.load(f, Loader=yaml.UnsafeLoader)
-        exp_agent_params = cfg['agent_params']
-        # parse the agent params from the loaded yaml
-        for k in exp_agent_params.keys():
-            try:
-                exp_agent_params[k] = ast.literal_eval(exp_agent_params[k])
-            except (ValueError,SyntaxError):
-                pass
-    else:       # no pretrained expert, expect to get the parameters from experiment_params
-        exp_agent_params = experiment_params.batch_expert_params.as_dict()
-
-    exp_agent_params['verbose'] = experiment_params.verbose
-    exp_agent_params['tensorboard_log'] = output_dir
-    algo = exp_agent_params['algorithm']
-    seed = exp_agent_params['seed']
-    ###################
-    # make the env
-    n_envs = experiment_params.n_envs
-    env = env_make(n_envs,experiment_params.env_params,algo,seed)
-    #####################
-    # create the agent
-    if algo=='random':      # if we simply need a random agent, we're creating a callable object for model
-        try:
-            _ = env.action_space.sample()
-        except:
-            raise NotImplementedError("random model assumes gym environment (uses its 'sample' method)")
-        def model(obs,gymenv=env):
-            action = gymenv.action_space.sample()
-            return action
-    else:
-        if ALGOS[algo] is None:
-            raise ValueError('{} requires MPI to be installed'.format(algo))
-
-        n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
-        parse_agent_params(exp_agent_params,n_actions,experiment_params.n_timesteps)
-        normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
-
-        trained_agent = experiment_params.batch_experience_trained_agent
-        if trained_agent_params_file:
-            valid_extension = trained_agent_params_file.endswith('.pkl') or trained_agent_params_file.endswith('.zip')
-            assert valid_extension and os.path.isfile(trained_agent_params_file), \
-                "The trained_agent must be a valid path to a .zip/.pkl file"
-            logger.info("loading pretrained agent to continue training")
-            # if policy is defined, delete as it will be loaded with the trained agent
-            del exp_agent_params['policy']
-            model = ALGOS[algo].load(trained_agent, env=env,**exp_agent_params)
-            exp_folder = trained_agent[:-4]
-            if normalize:
-                logger.info("Loading saved running average")
-                env.load_running_average(exp_folder)
-
-        else:       # create a model from scratch
-            model = ALGOS[algo](env=env, **exp_agent_params)
-
-    # prepare the path to save the expert experience buffer
-    exp_agent_algo = algo
-    exp_buf_filename = 'er_'+experiment_params.env_params.env_id+'_'+exp_agent_algo
-    exp_buf_filename = os.path.join(output_dir,exp_buf_filename)
-    logger.info('Generating experience buffer with ' + exp_agent_algo)
-    # at this point, we have 2 options:
-    #########################
-    # option 1: create it manually
-    # kwargs = {}
-    # if experiment_params.log_interval > -1:
-    #     kwargs = {'log_interval': experiment_params.log_interval}
-
-    # model.learn(int(experiment_params.n_timesteps), **kwargs)
-    # experience_buffer = copy.deepcopy(model.replay_buffer)
-    # # save the experience buffer
-    # experience_buffer.save_for_bc(exp_buf_filename)
-    # # experience_buffer is structured to be wrapped by ExpertData
-    #########################
-    # option 2: use generate_expert_data
-    experience_buffer = generate_experience_traj(model, save_path=exp_buf_filename, env=env,
-                                                 n_timesteps_train=int(experiment_params.batch_expert_n_timesteps),
-                                                 n_timesteps_record=experiment_params.batch_expert_steps_to_record)
-    env.close()
-    return experience_buffer
-
 def load_or_create_experience_buffer(experiment_params,output_dir):
     # if we got an existing experience buffer, load from file and return it
-    if experiment_params.batch_experience_buffer and os.path.exists(experiment_params.batch_experience_buffer):
-        logger.info('loading experience buffer from '+experiment_params.batch_experience_buffer)
-        experience_buffer = load_experience_traj(experiment_params.batch_experience_buffer)
-        # experience_buffer = np.load(experiment_params.batch_experience_buffer,allow_pickle=True)
+    if experiment_params.experience_dataset and os.path.exists(experiment_params.experience_dataset):
+        logger.info('loading experience buffer from '+experiment_params.experience_dataset)
+        experience_buffer = load_experience_traj(experiment_params.experience_dataset)
         return experience_buffer
     # if we got to this line, we need to generate an experience buffer
     experience_buffer = create_experience_buffer(experiment_params,output_dir)
@@ -213,9 +118,9 @@ def run_experiment(experiment_params):
         experiment_params.agent_params.seed = seed
 
         saved_exp_agent_hparams = None
-        if experiment_params.batch_expert_params:
-            experiment_params.batch_expert_params.seed = seed
-            exp_agent_hparams = experiment_params.batch_expert_params.as_dict()
+        if experiment_params.expert_params:
+            experiment_params.expert_params.seed = seed
+            exp_agent_hparams = experiment_params.expert_params.as_dict()
             saved_exp_agent_hparams = OrderedDict(
                 [(key, str(exp_agent_hparams[key])) for key in sorted(exp_agent_hparams.keys())])
 
@@ -229,7 +134,7 @@ def run_experiment(experiment_params):
         saved_hyperparams = OrderedDict([(key, str(exparams_dict[key])) for key in exparams_dict.keys()])
         saved_hyperparams['agent_params']=saved_agent_hparams
         saved_hyperparams['env_params'] = saved_env_params
-        saved_hyperparams['batch_expert_params'] = saved_exp_agent_hparams
+        saved_hyperparams['expert_params'] = saved_exp_agent_hparams
 
         # load or create the experience replay buffer
         er_buf = load_or_create_experience_buffer(experiment_params,output_dir)
@@ -265,11 +170,9 @@ def run_experiment(experiment_params):
             # if policy is defined, delete as it will be loaded with the trained agent
             del agent_hyperparams['policy']
             model = ALGOS[algo].load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
-            # model = DBCQ.load(trained_agent, env=env, replay_buffer=er_buf, **agent_hyperparams)
 
         else:  # create a model from scratch
             model = ALGOS[algo](env=env, replay_buffer=er_buf, **agent_hyperparams)
-            # model = DBCQ(env=env, replay_buffer=er_buf, **agent_hyperparams)
 
         kwargs = {}
         if experiment_params.log_interval > -1:

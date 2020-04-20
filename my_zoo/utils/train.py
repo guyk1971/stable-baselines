@@ -6,6 +6,8 @@ import warnings
 import gym
 from gym import spaces
 import numpy as np
+import yaml
+import ast
 from stable_baselines.common.cmd_util import make_atari_env
 from stable_baselines.common.vec_env import VecFrameStack, VecEnv, VecNormalize, DummyVecEnv
 from stable_baselines.common.noise import AdaptiveParamNoiseSpec, NormalActionNoise, OrnsteinUhlenbeckActionNoise
@@ -26,8 +28,10 @@ except ImportError:
 
 from my_zoo.utils.utils import make_env, linear_schedule, get_wrapper_class
 from zoo.utils.noise import LinearNormalActionNoise
+from my_zoo.utils.utils import ALGOS
 
 from my_zoo.hyperparams.default_config import CC_ENVS
+from my_zoo.my_envs import L2PEnv
 
 
 def get_create_env(algo,seed,env_params):
@@ -134,7 +138,15 @@ def parse_agent_params(hyperparams,n_actions,n_timesteps):
 
     return
 
-
+def env_make(n_envs,env_params,algo,seed):
+    env_id = env_params.env_id
+    logger.info('using {0} instances of {1} :'.format(n_envs, env_id))
+    if env_id=='L2P':
+        env = L2PEnv()
+    else:
+        create_env = get_create_env(algo,seed,env_params)
+        env = create_env(n_envs)
+    return env
 
 # batch_rl utils
 def load_experience_traj(csv_path):
@@ -208,11 +220,9 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
         logger.info("training expert start - {0} timesteps".format(n_timesteps_train))
         model.learn(n_timesteps_train,tb_log_name='exp_gen_train')
         logger.info("generate expert trajectory: training expert end")
-    else:
-        logger.info("skipped training expert")
+
 
     logger.info("start recording {0} expert steps".format(n_timesteps_record))
-
     episode_returns = []
     episode_starts = []
 
@@ -263,9 +273,88 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
 
     # assuming we save only the numpy arrays (not the obs_space and act_space)
     if save_path is not None:
-        # np.savez(save_path, **numpy_dict)
+        np.savez(save_path+'.npz', **numpy_dict)
         logger.info("saving to experience as csv file: "+save_path+'.csv')
         replay_buffer.save_to_csv(save_path+'.csv',os.path.splitext(os.path.basename(save_path))[0])
 
     env.close()
     return numpy_dict
+
+
+def create_experience_buffer(experiment_params,output_dir):
+    '''
+    uses the expert agent to create an experience buffer in a format that can be wrapped by ExpertData
+    :param experiment_params: to extract tehe parameters of the expert agent
+    :param output_dir: location of where to save the experience buffer
+    :return: experience_buffer that can be consumed (wrapped) by ExpertData
+    '''
+
+    trained_agent_params_file = experiment_params.expert_model_file
+    if trained_agent_params_file:
+        trained_agent_params_folder=os.path.dirname(os.path.realpath(trained_agent_params_file))
+        yml_filename = os.path.join(trained_agent_params_folder,'config.yml')
+        with open(yml_filename, 'r') as f:
+             cfg = yaml.load(f, Loader=yaml.UnsafeLoader)
+        exp_agent_params = cfg['agent_params']
+        # parse the agent params from the loaded yaml
+        for k in exp_agent_params.keys():
+            try:
+                exp_agent_params[k] = ast.literal_eval(exp_agent_params[k])
+            except (ValueError,SyntaxError):
+                pass
+    else:       # no pretrained expert, expect to get the parameters from experiment_params
+        exp_agent_params = experiment_params.expert_params.as_dict()
+
+    exp_agent_params['verbose'] = experiment_params.verbose
+    exp_agent_params['tensorboard_log'] = output_dir
+    algo = exp_agent_params['algorithm']
+    seed = exp_agent_params['seed']
+    ###################
+    # make the env
+    n_envs = experiment_params.n_envs
+    env = env_make(n_envs,experiment_params.env_params,algo,seed)
+    #####################
+    # create the agent
+    if algo=='random':      # if we simply need a random agent, we're creating a callable object for model
+        try:
+            _ = env.action_space.sample()
+        except:
+            raise NotImplementedError("random model assumes gym environment (uses its 'sample' method)")
+        def model(obs,gymenv=env):
+            action = gymenv.action_space.sample()
+            return action
+    else:
+        if ALGOS[algo] is None:
+            raise ValueError('{} requires MPI to be installed'.format(algo))
+
+        n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
+        parse_agent_params(exp_agent_params,n_actions,int(experiment_params.train_expert_n_timesteps))
+        normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
+
+        if trained_agent_params_file:
+            valid_extension = trained_agent_params_file.endswith('.pkl') or trained_agent_params_file.endswith('.zip')
+            assert valid_extension and os.path.isfile(trained_agent_params_file), \
+                "The trained_agent must be a valid path to a .zip/.pkl file"
+            logger.info("loading pretrained agent to continue training")
+            # if policy is defined, delete as it will be loaded with the trained agent
+            del exp_agent_params['policy']
+            del exp_agent_params['policy_kwargs']
+            model = ALGOS[algo].load(trained_agent_params_file, env=env,**exp_agent_params)
+            exp_folder = trained_agent_params_file[:-4]
+            if normalize:       # this case was not tested.
+                logger.info("Loading saved running average")
+                env.load_running_average(exp_folder)
+        else:       # create a model from scratch
+            model = ALGOS[algo](env=env, **exp_agent_params)
+
+    # prepare the path to save the expert experience buffer
+    exp_agent_algo = algo
+    exp_buf_filename = 'er_'+experiment_params.env_params.env_id+'_'+exp_agent_algo
+    exp_buf_filename = os.path.join(output_dir,exp_buf_filename)
+    logger.info('Generating experience buffer with ' + exp_agent_algo)
+    experience_buffer = generate_experience_traj(model, save_path=exp_buf_filename, env=env,
+                                                 n_timesteps_train=int(experiment_params.train_expert_n_timesteps),
+                                                 n_timesteps_record=experiment_params.expert_steps_to_record)
+    env.close()
+    return experience_buffer
+

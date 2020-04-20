@@ -464,24 +464,28 @@ class ExperimentParams:
         self.n_envs = 1
         self.env_params = None
 
-        ###### Agent #######
+
+        ############### Agent ################
+        # pretrain with behavioral cloning
         # (pretrain_dataset,pretrain_expert_agent) are related as follows:
         # dataset = None, expert_agent = None : no pretraing
-        # dataset != None, expert_agent = None : pretrain from existing buffer
+        # dataset != None, expert_agent = None : pretrain from existing buffer (behavioral cloning)
         # dataset = None, expert_agent != None : Illegal option. agent must have path to save
         # dataset != None, expert_agent != None : use expert to write to pretrain_dataset and then pretrain
-        self.pretrain_dataset = None            # path to experience buffer that can be wrapped by ExpertData
-                                                # if None, there's no pre-train
-                                                # else: either load the dataset or write to this path
-        self.pretrain_expert_params = None   # parameters of agent to generate experience for pretrain
-        self.pretrain_expert_n_timesteps = 1e5  # number of timesteps to train the expert before it generates the data
-        self.pretrain_dataset_n_episodes = 100  # number of episode to generate in the pretrain buffer
+
+
+        # we can either load a trained model and continue train it using the agent_params
+
+
         # given we do pretraining, use the following for pretrain (behavioral cloning)
-        self.pretrain_epochs = 10               # number of epochs to train on the expert data
+        self.experience_dataset = None          # path to experience buffer that can be wrapped by ExpertData
+                                                # if None, there's no pre-train
+        self.pretrain_epochs = 0                # number of epochs to train on the expert data (as behavioral cloning)
         self.pretrain_lr = 1e-4
 
+        ########################
         # trained agent - if we want to continue training from a saved agent
-        self.trained_agent=None         # path to main pretrained agent - to continue training
+        self.trained_agent_model_file=None         # path to main pretrained agent - to continue training
         self.agent_params = None        # agent that trains the main policy.
                                         # should be class of agent params e.g. DQNAgentParams()
         # training params
@@ -489,7 +493,7 @@ class ExperimentParams:
         self.log_interval = -1          # using algorithm default
 
         ###### BatchRL #######
-        self.batch_experience_trained_agent = None      # path to trained agent to generate experience for batch rl
+        self.expert_model_file = None           # path to expert to generate experience for batch rl
                                                         # if not None, will load it to generate the buffer
                                                         # currently not supported. SHOULD BE 'None' !
         # the following combinations for (batch_expert_params,batch_experiece_buffer)
@@ -498,11 +502,10 @@ class ExperimentParams:
         # (None,None) - no batch mode. Illegal if the agent is one of batch mode agents.
         # Note that we currently have only one agent for batch mode : DBCQ.
         # if we want DQN to train on batch mode, we need to change it --> create a distinct version.
-        self.batch_expert_params = None         # can be any AgentParams from above (assuming coherency in obs,act)
-        self.batch_experience_buffer = None     # path to experience buffer we'll learn from
-                                                # name template: experience_<env-id>_<agent-id>.npy
-        self.batch_expert_n_timesteps_train = int(1e5)      # number of timesteps to train the expert before starting to record
-        self.batch_expert_steps_to_record = int(5e4)        # number of episodes to record into the experience buffer
+        self.expert_params = None               # parameters for further training the expert
+                                                # can be any AgentParams from above (assuming coherency in obs,act)
+        self.train_expert_n_timesteps = 0      # number of timesteps to train the expert before starting to record
+        self.expert_steps_to_record = 0        # number of episodes to record into the experience buffer
 
         self.online_evaluation = True           # whether to use evaluation environment
         self.offline_evaluation_split = 0.0     # if >0 perform offline evaluation on this fraction of experience
