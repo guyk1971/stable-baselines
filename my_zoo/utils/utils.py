@@ -56,9 +56,23 @@ ALGOS = {
 
 # ================== Custom Policies =================
 
+class CustomDQNPolicyN(DQNFFPolicy):
+    def __init__(self, *args, **kwargs):
+        super(CustomDQNPolicyN, self).__init__(*args, **kwargs,
+                                              layers=[64],
+                                              layer_norm=True,
+                                              feature_extraction="mlp")
+
 class CustomDQNPolicy(DQNFFPolicy):
     def __init__(self, *args, **kwargs):
         super(CustomDQNPolicy, self).__init__(*args, **kwargs,
+                                              layers=[64],
+                                              layer_norm=False,
+                                              feature_extraction="mlp")
+
+class CustomQRDQNPolicyN(QRDQNFFPolicy):
+    def __init__(self, *args, **kwargs):
+        super(CustomQRDQNPolicyN, self).__init__(*args, **kwargs,
                                               layers=[64],
                                               layer_norm=True,
                                               feature_extraction="mlp")
@@ -67,23 +81,9 @@ class CustomQRDQNPolicy(QRDQNFFPolicy):
     def __init__(self, *args, **kwargs):
         super(CustomQRDQNPolicy, self).__init__(*args, **kwargs,
                                               layers=[64],
-                                              layer_norm=True,
+                                              layer_norm=False,
                                               feature_extraction="mlp")
 
-
-
-class CustomMlpPolicy(BasePolicy):
-    def __init__(self, *args, **kwargs):
-        super(CustomMlpPolicy, self).__init__(*args, **kwargs,
-                                              layers=[16],
-                                              feature_extraction="mlp")
-
-
-class CustomSACPolicy(SACPolicy):
-    def __init__(self, *args, **kwargs):
-        super(CustomSACPolicy, self).__init__(*args, **kwargs,
-                                              layers=[256, 256],
-                                              feature_extraction="mlp")
 
 
 
