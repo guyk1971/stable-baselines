@@ -154,9 +154,20 @@ def create_experience_buffer(experiment_params,output_dir):
 
 def load_or_create_experience_buffer(experiment_params,output_dir):
     # if we got an existing experience buffer, load from file and return it
-    if experiment_params.experience_dataset and os.path.exists(experiment_params.experience_dataset):
-        logger.info('loading experience buffer from '+experiment_params.experience_dataset)
-        experience_buffer = load_experience_traj(experiment_params.experience_dataset)
+    if experiment_params.experience_dataset:
+        experience_buffers=[]
+        if isinstance(experiment_params.experience_dataset,str):
+            dataset_files=[experiment_params.experience_dataset]
+        else:   # assuming list of strings
+            dataset_files=experiment_params.experience_dataset
+        for dataset_file in dataset_files:
+            if os.path.exists(dataset_file):
+                logger.info('loading experience buffer from ' + dataset_file)
+                experience_buffers.append(load_experience_traj(dataset_file))
+            else:
+                logger.warn('dataset file {0} not found'.format(dataset_file))
+        # concatenate all buffers together
+        experience_buffer = {k:np.vstack([exp_buf[k] for exp_buf in experience_buffers]) for k in experience_buffers[0]}
         return experience_buffer
     # if we got to this line, we need to generate an experience buffer
     experience_buffer = create_experience_buffer(experiment_params,output_dir)
