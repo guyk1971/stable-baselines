@@ -493,15 +493,9 @@ class ExperimentParams:
         self.log_interval = -1          # using algorithm default
 
         ###### BatchRL #######
-        self.expert_model_file = None           # path to expert to generate experience for batch rl
-                                                        # if not None, will load it to generate the buffer
-                                                        # currently not supported. SHOULD BE 'None' !
-        # the following combinations for (batch_expert_params,batch_experiece_buffer)
-        # (DQN,None) - will generate buffer from scratch using DQN agent and save to file 'dataset_<env_id>_<agent_id>'
-        # (None,Buf) - load the buffer from file (convert to ExpertData if needed)
-        # (None,None) - no batch mode. Illegal if the agent is one of batch mode agents.
-        # Note that we currently have only one agent for batch mode : DBCQ.
-        # if we want DQN to train on batch mode, we need to change it --> create a distinct version.
+        self.expert_model_file = None           # path to expert to generate experience for batch rl (if experience_dataset is not provided)
+                                                # if not None, will load it to generate the buffer
+                                                # currently not supported. SHOULD BE 'None' !
         self.expert_params = None               # parameters for further training the expert
                                                 # can be any AgentParams from above (assuming coherency in obs,act)
         self.train_expert_n_timesteps = 0      # number of timesteps to train the expert before starting to record
