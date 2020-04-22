@@ -66,7 +66,6 @@ import tensorflow as tf
 from gym.spaces import MultiDiscrete
 
 from stable_baselines.common import tf_util
-from stable_baselines.qrdqn.policies import pick_action
 
 
 def scope_vars(scope, trainable_only=False):
@@ -126,6 +125,13 @@ def gather_along_second_axis(data, indices):
     batch_offset = tf.range(0, tf.shape(data)[0])
     flat_indices = tf.stack([batch_offset, indices], axis=1)
     return tf.gather_nd(data, flat_indices)
+
+
+def pick_action(p_values):
+    q_values = tf.reduce_mean(p_values, axis=-1)
+    actions = tf.argmax(q_values, axis=-1, output_type=tf.int32)
+    return actions
+
 
 
 def build_act(q_func, ob_space, ac_space, stochastic_ph, update_eps_ph, sess):

@@ -152,8 +152,8 @@ class QRDQN(OffPolicyRLModel):
             assert not self.param_noise, \
                 "Error: QRDQN currently doesnt support Parameter Space Noise for Exploration"
 
-            if self.batch_rl_mode and self.prioritized_replay:
-                logger.warn("batch_rl mode cant work with prioritied replay buffer --> disabling priority buffer")
+            if self.prioritized_replay:
+                logger.warn("qrdqn cant work with prioritied replay buffer --> disabling priority buffer")
                 self.prioritized_replay = False
 
 
