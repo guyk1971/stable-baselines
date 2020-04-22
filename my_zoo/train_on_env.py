@@ -34,7 +34,7 @@ from my_zoo.utils.utils import ALGOS
 from zoo.utils.hyperparams_opt import hyperparam_optimization
 from stable_baselines.gail import ExpertDataset
 from my_zoo.utils.common import *
-from my_zoo.utils.train import get_create_env,parse_agent_params,generate_experience_traj,load_experience_traj,SaveOnBestTrainingRewardCallback
+from my_zoo.utils.train import get_create_env,parse_agent_params,generate_experience_traj,load_experience_traj
 from stable_baselines.common.callbacks import EvalCallback
 
 

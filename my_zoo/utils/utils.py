@@ -19,9 +19,6 @@ except ImportError:
 
 from stable_baselines.deepq.policies import FeedForwardPolicy as DQNFFPolicy
 from stable_baselines.qrdqn.policies import FeedForwardPolicy as QRDQNFFPolicy
-from stable_baselines.common.policies import FeedForwardPolicy as BasePolicy
-from stable_baselines.common.policies import register_policy
-from stable_baselines.sac.policies import FeedForwardPolicy as SACPolicy
 from stable_baselines.bench import Monitor
 from stable_baselines import logger
 from stable_baselines import PPO2, A2C, ACER, ACKTR, DQN, HER, SAC, TD3
