@@ -14,6 +14,8 @@ Breaking Changes:
 
 New Features:
 ^^^^^^^^^^^^^
+- Added momentum parameter to A2C for the embedded RMSPropOptimizer (@kantneel)
+- ActionNoise is now an abstract base class and implements ``__call__``, ``NormalActionNoise`` and ``OrnsteinUhlenbeckActionNoise`` have return types (@solliet)
 
 Bug Fixes:
 ^^^^^^^^^^
@@ -21,6 +23,8 @@ Bug Fixes:
 - Fixed a bug in ``HindsightExperienceReplayWrapper``, where the openai-gym signature for ``compute_reward`` was not matched correctly (@johannes-dornheim)
 - Fixed SAC/TD3 checking time to update on learn steps instead of total steps (@solliet)
 - Added ``**kwarg`` pass through for ``reset`` method in ``atari_wrappers.FrameStack`` (@solliet)
+- Fix consistency in ``setup_model()`` for SAC, ``target_entropy`` now uses ``self.action_space`` instead of ``self.env.action_space`` (@solliet)
+- Fix reward threshold in ``test_identity.py``
 
 Deprecations:
 ^^^^^^^^^^^^^
@@ -31,6 +35,8 @@ Others:
 Documentation:
 ^^^^^^^^^^^^^^
 - Fix typos (@caburu)
+- Fix typos in PPO2 (@kvenkman)
+- Removed ``stable_baselines\deepq\experiments\custom_cartpole.py`` (@aakash94)
 
 
 Release 2.10.0 (2020-03-11)
@@ -686,4 +692,4 @@ Thanks to @bjmuld @iambenzo @iandanforth @r7vme @brendenpetersen @huvar @abhiskk
 @XMaster96 @kantneel @Pastafarianist @GerardMaggiolino @PatrickWalter214 @yutingsz @sc420 @Aaahh @billtubbs
 @Miffyli @dwiel @miguelrass @qxcv @jaberkow @eavelardev @ruifeng96150 @pedrohbtp @srivatsankrishnan @evilsocket
 @MarvineGothic @jdossgollin @SyllogismRXS @rusu24edward @jbulow @Antymon @seheevic @justinkterry @edbeeching
-@flodorner @KuKuXia @NeoExtended @solliet @mmcenta @richardwu @tirafesi @caburu @johannes-dornheim
+@flodorner @KuKuXia @NeoExtended @solliet @mmcenta @richardwu @tirafesi @caburu @johannes-dornheim @kvenkman @aakash94
