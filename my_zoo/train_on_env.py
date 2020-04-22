@@ -34,8 +34,8 @@ from my_zoo.utils.utils import ALGOS
 from zoo.utils.hyperparams_opt import hyperparam_optimization
 from stable_baselines.gail import ExpertDataset
 from my_zoo.utils.common import *
-from my_zoo.utils.train import get_create_env,parse_agent_params,generate_experience_traj,load_experience_traj
-
+from my_zoo.utils.train import get_create_env,parse_agent_params,generate_experience_traj,load_experience_traj,SaveOnBestTrainingRewardCallback
+from stable_baselines.common.callbacks import EvalCallback
 
 
 CONFIGS_DIR = os.path.join(os.path.expanduser('~'),'share','Data','MLA','stbl','configs')
@@ -203,11 +203,17 @@ def run_experiment(experiment_params):
             kwargs = {'log_interval': experiment_params.log_interval}
         if experiment_params.n_timesteps>0:
             logger.info('training the agent')
-            model.learn(int(experiment_params.n_timesteps), **kwargs)
+            eval_env = create_env(n_envs)
+            evalcb = None
+            if experiment_params.online_eval_freq > 0:      # do online validation
+                evalcb = EvalCallback(eval_env,n_eval_episodes=experiment_params.online_eval_n_episodes,
+                                      eval_freq=experiment_params.online_eval_freq,
+                                      log_path=output_dir, best_model_save_path=output_dir)
+            model.learn(int(experiment_params.n_timesteps),callback=evalcb, **kwargs)
             # Save trained model
             save_path = output_dir
-            params_path = "{}/{}".format(save_path, 'model_params')
-            os.makedirs(params_path, exist_ok=True)
+            params_path = "{}/{}".format(save_path, 'final_model_params')
+            # os.makedirs(params_path, exist_ok=True)
             # Only save worker of rank 0 when using mpi
             if rank == 0:
                 logger.info("Saving to {}".format(save_path))

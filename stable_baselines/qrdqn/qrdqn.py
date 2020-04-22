@@ -64,10 +64,10 @@ class QRDQN(OffPolicyRLModel):
         If None, the number of cpu of the current machine will be used.
     """
     def __init__(self, policy, env, replay_buffer=None, n_atoms=50, gamma=0.99, learning_rate=5e-4, buffer_size=50000, exploration_fraction=0.1,
-                 exploration_final_eps=0.02, exploration_initial_eps=1.0, train_freq=1, val_freq=0, batch_size=32,
+                 exploration_final_eps=0.02, exploration_initial_eps=1.0, train_freq=1, ope_freq=0, batch_size=32,
                  double_q=False, learning_starts=1000, target_network_update_freq=500, buffer_train_fraction=0.8,
                  prioritized_replay=False,prioritized_replay_alpha=0.6, prioritized_replay_beta0=0.4,
-                 prioritized_replay_beta_iters=None, prioritized_replay_eps=1e-6, param_noise=False,n_eval_episodes=100,
+                 prioritized_replay_beta_iters=None, prioritized_replay_eps=1e-6, param_noise=False,ope_n_episodes=100,
                  n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
                  _init_setup_model=True, policy_kwargs=None, full_tensorboard_log=False, seed=None):
 
@@ -95,8 +95,8 @@ class QRDQN(OffPolicyRLModel):
         self.double_q = double_q
         self.n_atoms = n_atoms
         self.buffer_train_fraction = buffer_train_fraction      # for batch_rl
-        self.val_freq = val_freq            # batch_rl : >0  for built in validation (i.e not through callback)
-        self.n_eval_episodes = n_eval_episodes  # number of episodes to evaluate each time we evaluate
+        self.ope_freq = ope_freq            # batch_rl : >0  for built in validation (i.e not through callback)
+        self.ope_n_episodes = ope_n_episodes  # number of episodes to evaluate each time we evaluate
 
 
         self.graph = None
@@ -253,27 +253,31 @@ class QRDQN(OffPolicyRLModel):
                 # Update target network periodically.
                 self.update_target(sess=self.sess)
                 last_updadte_target_ts = ts
-            # the following validation can also be done via callback.
-            # in the future, will be used here only for OPE ?
-            if self.val_freq > 0 and ((epoch + 1) % self.val_freq) == 0:
-                if self.env is not None:
-                    mean_reward, std_reward = online_policy_eval(self, self.env, n_eval_episodes=self.n_eval_episodes)
-                    if writer is not None:
-                        with tf.variable_scope('evaluation', reuse=False):
-                            tbsum = tf.Summary()
-                            tbsum.value.add(tag='mean_{0}_episode_reward'.format(self.n_eval_episodes),
-                                            simple_value=mean_reward)
-                            tbsum.value.add(tag='std_{0}_episode_reward'.format(self.n_eval_episodes),
-                                            simple_value=std_reward)
-                            writer.add_summary(tbsum, self.num_timesteps)
-                else:
-                    raise RuntimeError("Off Policy Evaluation is not supported yet")
+            # the following code should be enabled for Off Policy Evaluation when this will be implemented
+            if self.ope_freq > 0 and (epoch % self.ope_freq) == 0:
+                # if self.env is not None:
+                #     mean_reward, std_reward = online_policy_eval(self, self.env, n_eval_episodes=self.ope_n_episodes)
+                #     if writer is not None:
+                #         with tf.variable_scope('evaluation', reuse=False):
+                #             tbsum = tf.Summary()
+                #             tbsum.value.add(tag='mean_{0}_episode_reward'.format(self.ope_n_episodes),
+                #                             simple_value=mean_reward)
+                #             tbsum.value.add(tag='std_{0}_episode_reward'.format(self.ope_n_episodes),
+                #                             simple_value=std_reward)
+                #             writer.add_summary(tbsum, self.num_timesteps)
+                # else:
+                #     raise RuntimeError("Off Policy Evaluation is not supported yet")
+                # based on ope results we can decide whether to save the current model. currently always saving
+                save_path = self.tensorboard_log+'/model_params_{0}'.format(epoch)
+                logger.info('save checkpoint to ' + save_path)
+                self.save(save_path)
+
             if self.verbose >= 1 and log_interval is not None:
                 logger.record_tabular("epoch", epoch)
                 logger.record_tabular("epoch_loss", avg_epoch_loss)
                 logger.record_tabular("lr ", lr_now)
                 if mean_reward is not None:
-                    logger.record_tabular('mean {0} episode reward'.format(self.n_eval_episodes), mean_reward)
+                    logger.record_tabular('mean {0} episode reward'.format(self.ope_n_episodes), mean_reward)
                 logger.dump_tabular()
 
 
@@ -507,6 +511,8 @@ class QRDQN(OffPolicyRLModel):
             "param_noise": self.param_noise,
             "learning_starts": self.learning_starts,
             "train_freq": self.train_freq,
+            "ope_freq": self.ope_freq,  # batch rl
+            "ope_n_episodes": self.ope_n_episodes,  # batch rl
             "prioritized_replay": self.prioritized_replay,
             "prioritized_replay_eps": self.prioritized_replay_eps,
             "batch_size": self.batch_size,

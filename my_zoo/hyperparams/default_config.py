@@ -92,9 +92,9 @@ class DQNAgentParams(AgentParams):
         self.param_noise = False
 
         # batch_rl defaults:
-        self.val_freq = 1  # num epochs between evaluations
+        self.ope_freq = 1                       # num epochs between evaluations (Off Policy Eval)
         self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
-        self.n_eval_episodes = 100
+        self.ope_n_episodes = 100
 
         # other default params
         self.gamma = 0.99
@@ -142,9 +142,9 @@ class QRDQNAgentParams(AgentParams):
         self.n_atoms = 50
 
         # batch_rl defaults:
-        # self.val_freq = 1  # num epochs between evaluations
-        # self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
-        # self.n_eval_episodes = 100
+        self.ope_freq = 1  # num epochs between evaluations
+        self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
+        self.ope_n_episodes = 100
 
         # other default params
         self.gamma = 0.99
@@ -416,7 +416,6 @@ class DBCQAgentParams(AgentParams):
         # Default parameters for DQN Agent
         self.algorithm = 'dbcq'
         self.policy = 'MlpPolicy'    # or 'CnnPolicy' or 'CustomDQNPolicy' - the main policy that we train
-        self.val_freq = 1                       # num epochs between evaluations
         self.learning_rate = 1e-4               # can also be 'lin_<float>' e.g. 'lin_0.001'
         self.target_network_update_freq = 1   # number of epochs between target network updates
         self.param_noise = False
@@ -425,7 +424,8 @@ class DBCQAgentParams(AgentParams):
                                                 # considered as candidates
                                                 # if gen_act_policy is KNN - the max distance from nearest neighbor
                                                 # s.t. actions that are farther will be thrown
-        self.n_eval_episodes = 100
+        self.ope_freq = 1                       # num epochs between evaluations
+        self.ope_n_episodes = 100
         # other default params
         self.gamma = 0.99
         self.batch_size = 32
@@ -492,6 +492,9 @@ class ExperimentParams:
         self.n_timesteps = 1e5          # number of timesteps to train main policy
         self.log_interval = -1          # using algorithm default
 
+        self.online_eval_freq = 0               # evaluate on eval env every this number of timesteps
+        self.online_eval_n_episodes = 100
+
         ###### BatchRL #######
         self.expert_model_file = None           # path to expert to generate experience for batch rl (if experience_dataset is not provided)
                                                 # if not None, will load it to generate the buffer
@@ -499,11 +502,9 @@ class ExperimentParams:
         self.expert_params = None               # parameters for further training the expert
                                                 # can be any AgentParams from above (assuming coherency in obs,act)
         self.train_expert_n_timesteps = 0      # number of timesteps to train the expert before starting to record
+
         self.expert_steps_to_record = 0        # number of episodes to record into the experience buffer
 
-        self.online_evaluation = True           # whether to use evaluation environment
-        self.offline_evaluation_split = 0.0     # if >0 perform offline evaluation on this fraction of experience
-                                                # e.g. if 0.2, train on 80%, evaluate on 20%
 
 
 

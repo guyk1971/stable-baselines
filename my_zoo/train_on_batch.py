@@ -29,6 +29,7 @@ import yaml
 import ast
 from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
+from stable_baselines.common.callbacks import EvalCallback
 from my_zoo.utils.train import load_experience_traj,env_make,generate_experience_traj
 from my_zoo.utils.utils import ALGOS
 from stable_baselines.dbcq.dbcq import DBCQ
@@ -167,7 +168,8 @@ def load_or_create_experience_buffer(experiment_params,output_dir):
             else:
                 logger.warn('dataset file {0} not found'.format(dataset_file))
         # concatenate all buffers together
-        experience_buffer = {k:np.vstack([exp_buf[k] for exp_buf in experience_buffers]) for k in experience_buffers[0]}
+        experience_buffer = {k: np.concatenate([exp_buf[k] for exp_buf in experience_buffers])
+                             for k in experience_buffers[0]}
         return experience_buffer
     # if we got to this line, we need to generate an experience buffer
     experience_buffer = create_experience_buffer(experiment_params,output_dir)
@@ -265,7 +267,19 @@ def run_experiment(experiment_params):
         kwargs = {}
         if experiment_params.log_interval > -1:
             kwargs = {'log_interval': experiment_params.log_interval}
-        model.learn(int(experiment_params.n_timesteps),tb_log_name='main_agent_train', **kwargs)
+
+        eval_env = env_make(n_envs,experiment_params.env_params,algo,seed)
+        evalcb = None
+        if experiment_params.online_eval_freq > 0:      # do online validation - doesnt work...
+            # when training on batch we do callback.on_step() every minibatch of samples
+            # thus the online_eval_freq which is given in steps should be converted to minibatches
+            eval_freq= int(experiment_params.online_eval_freq/agent_hyperparams['batch_size'])
+            evalcb = EvalCallback(eval_env,
+                                  n_eval_episodes=experiment_params.online_eval_n_episodes,
+                                  eval_freq=eval_freq,
+                                  log_path=output_dir, best_model_save_path=output_dir)
+
+        model.learn(int(experiment_params.n_timesteps),callback=evalcb,tb_log_name='main_agent_train', **kwargs)
 
         # Save trained model
         save_path = output_dir
