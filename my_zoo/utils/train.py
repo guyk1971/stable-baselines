@@ -6,6 +6,7 @@ import warnings
 import gym
 from gym import spaces
 import numpy as np
+import pandas as pd
 from stable_baselines.common.cmd_util import make_atari_env
 from stable_baselines.common.vec_env import VecFrameStack, VecEnv, VecNormalize, DummyVecEnv
 from stable_baselines.common.noise import AdaptiveParamNoiseSpec, NormalActionNoise, OrnsteinUhlenbeckActionNoise
@@ -145,6 +146,27 @@ def env_make(n_envs,env_params,algo,seed):
         create_env = get_create_env(algo,seed,env_params)
         env = create_env(n_envs)
     return env
+
+def online_eval_results_analysis(npz_filename):
+    if not os.path.exists(npz_filename):
+        logger.warn('evaluation results file not found')
+        return
+
+    eval_np = np.load(npz_filename)
+    eval_dict = {k:v for k,v in eval_np.items()}
+    # replace 'results' with 'mean_rew' and 'std_rew':
+    eval_dict['reward_mean'] = np.squeeze(eval_dict['results']).mean(axis=1)
+    eval_dict['reward_std'] = np.squeeze(eval_dict['results']).std(axis=1)
+    del eval_dict['results']
+    eval_dict['ep_lengths_mean'] = eval_dict['ep_lengths'].mean(axis=1)
+    eval_dict['ep_lengths_std']= eval_dict['ep_lengths'].std(axis=1)
+    del eval_dict['ep_lengths']
+    eval_df = pd.DataFrame(eval_dict)
+    eval_df.set_index('timesteps',inplace=True)
+    # save csv filename
+    df_filename = os.path.splitext(npz_filename)[0]+'.csv'
+    eval_df.to_csv(df_filename)
+    return
 
 
 # batch_rl utils

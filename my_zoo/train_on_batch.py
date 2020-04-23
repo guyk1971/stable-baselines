@@ -30,7 +30,7 @@ import ast
 from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
 from stable_baselines.common.callbacks import EvalCallback
-from my_zoo.utils.train import load_experience_traj,env_make,generate_experience_traj
+from my_zoo.utils.train import load_experience_traj,env_make,generate_experience_traj,online_eval_results_analysis
 from my_zoo.utils.utils import ALGOS
 from stable_baselines.dbcq.dbcq import DBCQ
 from my_zoo.my_envs import L2PEnv
@@ -280,6 +280,9 @@ def run_experiment(experiment_params):
                                   log_path=output_dir, best_model_save_path=output_dir)
 
         model.learn(int(experiment_params.n_timesteps),callback=evalcb,tb_log_name='main_agent_train', **kwargs)
+        # save evaluation report if needed
+        if experiment_params.online_eval_freq > 0:
+            online_eval_results_analysis(os.path.join(output_dir, 'evaluations.npz'))
 
         # Save trained model
         save_path = output_dir

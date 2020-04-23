@@ -17,12 +17,14 @@ import time
 import argparse
 import importlib
 from collections import OrderedDict
+import numpy as np
 import gym
 import yaml
 from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
 from stable_baselines.common.vec_env import VecFrameStack
 import shutil
+import pandas as pd
 
 try:
     import mpi4py
@@ -34,7 +36,7 @@ from my_zoo.utils.utils import ALGOS
 from zoo.utils.hyperparams_opt import hyperparam_optimization
 from stable_baselines.gail import ExpertDataset
 from my_zoo.utils.common import *
-from my_zoo.utils.train import get_create_env,parse_agent_params,generate_experience_traj,load_experience_traj
+from my_zoo.utils.train import get_create_env,parse_agent_params,generate_experience_traj,load_experience_traj,online_eval_results_analysis
 from stable_baselines.common.callbacks import EvalCallback
 
 
@@ -95,7 +97,6 @@ def do_hpopt(algo,create_env,experiment_params,output_dir):
     return
 
 
-
 def run_experiment(experiment_params):
     # logger = logging.getLogger(LOGGER_NAME)
     seed=experiment_params.seed
@@ -119,117 +120,121 @@ def run_experiment(experiment_params):
     output_dir=os.path.join(experiment_params.output_root_dir,str(seed))
     os.makedirs(output_dir, exist_ok=True)
 
-    # logger.info(experiment_params.as_dict())
+    with logger.ScopedOutputConfig(output_dir,['csv'],str(seed)):
+        # logger.info(experiment_params.as_dict())
 
-    # set the seed for the current worker's agent
-    experiment_params.agent_params.seed = seed
+        # set the seed for the current worker's agent
+        experiment_params.agent_params.seed = seed
 
-    # take a snapshot of the hyper parameters to save
-    agent_hyperparams = experiment_params.agent_params.as_dict()
-    env_params_dict = experiment_params.env_params.as_dict()
-    exparams_dict = experiment_params.as_dict()
-    saved_env_params = OrderedDict([(key, str(env_params_dict[key])) for key in sorted(env_params_dict.keys())])
-    saved_agent_hyperparams = OrderedDict([(key, str(agent_hyperparams[key])) for key in sorted(agent_hyperparams.keys())])
-    saved_hyperparams = OrderedDict([(key, str(exparams_dict[key])) for key in exparams_dict.keys()])
-    saved_hyperparams['agent_params']=saved_agent_hyperparams
-    saved_hyperparams['env_params'] = saved_env_params
+        # take a snapshot of the hyper parameters to save
+        agent_hyperparams = experiment_params.agent_params.as_dict()
+        env_params_dict = experiment_params.env_params.as_dict()
+        exparams_dict = experiment_params.as_dict()
+        saved_env_params = OrderedDict([(key, str(env_params_dict[key])) for key in sorted(env_params_dict.keys())])
+        saved_agent_hyperparams = OrderedDict([(key, str(agent_hyperparams[key])) for key in sorted(agent_hyperparams.keys())])
+        saved_hyperparams = OrderedDict([(key, str(exparams_dict[key])) for key in exparams_dict.keys()])
+        saved_hyperparams['agent_params']=saved_agent_hyperparams
+        saved_hyperparams['env_params'] = saved_env_params
 
-    # parse algorithm
-    algo = agent_hyperparams['algorithm']
+        # parse algorithm
+        algo = agent_hyperparams['algorithm']
 
-    if experiment_params.verbose>0:
-        experiment_params.agent_params.verbose = experiment_params.verbose
-        experiment_params.agent_params.tensorboard_log = output_dir
+        if experiment_params.verbose>0:
+            experiment_params.agent_params.verbose = experiment_params.verbose
+            experiment_params.agent_params.tensorboard_log = output_dir
 
-    ###################
-    # make the env
-    n_envs = experiment_params.n_envs
-    env_id = experiment_params.env_params.env_id
-    logger.info('using {0} instances of {1} :'.format(n_envs,env_id))
-    create_env = get_create_env(algo,seed,experiment_params.env_params)
-    env = create_env(n_envs)
+        ###################
+        # make the env
+        n_envs = experiment_params.n_envs
+        env_id = experiment_params.env_params.env_id
+        logger.info('using {0} instances of {1} :'.format(n_envs,env_id))
+        create_env = get_create_env(algo,seed,experiment_params.env_params)
+        env = create_env(n_envs)
 
-    # Stop env processes to free memory - not clear....
-    if experiment_params.hp_optimize and n_envs > 1:
-        env.close()
+        # Stop env processes to free memory - not clear....
+        if experiment_params.hp_optimize and n_envs > 1:
+            env.close()
 
-    #####################
-    # create the agent
-    if algo=='random':      # if we simply need a random agent, we're creating a callable object for model
-        def model(obs,gymenv=env):
-            action = gymenv.action_space.sample()
-            return action
-    else:
-        if ALGOS[algo] is None:
-            raise ValueError('{} requires MPI to be installed'.format(algo))
-        # n_actions = env.action_space.shape[0]
-        n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
-        parse_agent_params(agent_hyperparams,n_actions,experiment_params.n_timesteps)
-        if experiment_params.hp_optimize:
-            # do_hpopt(algo,create_env,experiment_params,output_dir)
-            raise NotImplementedError('hyper parameter optimization is not yet supported')
-        normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
-        trained_agent = experiment_params.trained_agent_model_file
-        if trained_agent:
-            valid_extension = trained_agent.endswith('.pkl') or trained_agent.endswith('.zip')
-            assert valid_extension and os.path.isfile(trained_agent), \
-                "The trained_agent must be a valid path to a .zip/.pkl file"
-            logger.info("loading pretrained agent to continue training")
-            # if policy is defined, delete as it will be loaded with the trained agent
-            del agent_hyperparams['policy']
-            del agent_hyperparams['policy_kwargs']
-            model = ALGOS[algo].load(trained_agent, env=env,**agent_hyperparams)
-            exp_folder = trained_agent[:-4]
-
-            if normalize:
-                logger.info("Loading saved running average")
-                env.load_running_average(exp_folder)
-
-        else:       # create a model from scratch
-            model = ALGOS[algo](env=env, **agent_hyperparams)
-
-        # check if pretrain(with behavioral cloning) is needed
-        if experiment_params.experience_dataset and experiment_params.pretrain_epochs>0:
-            logger.info("doing pre-training")
-            experience_buffer = load_experience_traj(experiment_params.experience_dataset)
-            dataset = ExpertDataset(traj_data=experience_buffer, train_fraction=0.8, batch_size=32,
-                                    sequential_preprocessing=True)
-            model.pretrain(dataset, n_epochs=experiment_params.pretrain_epochs,
-                           learning_rate=experiment_params.pretrain_lr,
-                           val_interval=int(experiment_params.pretrain_epochs/5))
-
-        kwargs = {}
-        if experiment_params.log_interval > -1:
-            kwargs = {'log_interval': experiment_params.log_interval}
-        if experiment_params.n_timesteps>0:
-            logger.info('training the agent')
-            eval_env = create_env(n_envs)
-            evalcb = None
-            if experiment_params.online_eval_freq > 0:      # do online validation
-                evalcb = EvalCallback(eval_env,n_eval_episodes=experiment_params.online_eval_n_episodes,
-                                      eval_freq=experiment_params.online_eval_freq,
-                                      log_path=output_dir, best_model_save_path=output_dir)
-            model.learn(int(experiment_params.n_timesteps),callback=evalcb, **kwargs)
-            # Save trained model
-            save_path = output_dir
-            params_path = "{}/{}".format(save_path, 'final_model_params')
-            # os.makedirs(params_path, exist_ok=True)
-            # Only save worker of rank 0 when using mpi
-            if rank == 0:
-                logger.info("Saving to {}".format(save_path))
-                model.save(params_path)
-                # Save hyperparams
-                # note that in order to save as yaml I need to avoid using classes in the definition.
-                # e.g. CustomDQNPolicy will not work. I need to put a string and parse it later
-                with open(os.path.join(output_dir, 'config.yml'), 'w') as f:
-                    yaml.dump(saved_hyperparams, f)
+        #####################
+        # create the agent
+        if algo=='random':      # if we simply need a random agent, we're creating a callable object for model
+            def model(obs,gymenv=env):
+                action = gymenv.action_space.sample()
+                return action
+        else:
+            if ALGOS[algo] is None:
+                raise ValueError('{} requires MPI to be installed'.format(algo))
+            # n_actions = env.action_space.shape[0]
+            n_actions = 1 if isinstance(env.action_space,gym.spaces.Discrete) else env.action_space.shape[0]
+            parse_agent_params(agent_hyperparams,n_actions,experiment_params.n_timesteps)
+            if experiment_params.hp_optimize:
+                # do_hpopt(algo,create_env,experiment_params,output_dir)
+                raise NotImplementedError('hyper parameter optimization is not yet supported')
+            normalize = experiment_params.env_params.norm_obs or experiment_params.env_params.norm_reward
+            trained_agent = experiment_params.trained_agent_model_file
+            if trained_agent:
+                valid_extension = trained_agent.endswith('.pkl') or trained_agent.endswith('.zip')
+                assert valid_extension and os.path.isfile(trained_agent), \
+                    "The trained_agent must be a valid path to a .zip/.pkl file"
+                logger.info("loading pretrained agent to continue training")
+                # if policy is defined, delete as it will be loaded with the trained agent
+                del agent_hyperparams['policy']
+                del agent_hyperparams['policy_kwargs']
+                model = ALGOS[algo].load(trained_agent, env=env,**agent_hyperparams)
+                exp_folder = trained_agent[:-4]
 
                 if normalize:
-                    # Unwrap
-                    if isinstance(env, VecFrameStack):
-                        env = env.venv
-                    # Important: save the running average, for testing the agent we need that normalization
-                    env.save_running_average(params_path)
+                    logger.info("Loading saved running average")
+                    env.load_running_average(exp_folder)
+
+            else:       # create a model from scratch
+                model = ALGOS[algo](env=env, **agent_hyperparams)
+
+            # check if pretrain(with behavioral cloning) is needed
+            if experiment_params.experience_dataset and experiment_params.pretrain_epochs>0:
+                logger.info("doing pre-training")
+                experience_buffer = load_experience_traj(experiment_params.experience_dataset)
+                dataset = ExpertDataset(traj_data=experience_buffer, train_fraction=0.8, batch_size=32,
+                                        sequential_preprocessing=True)
+                model.pretrain(dataset, n_epochs=experiment_params.pretrain_epochs,
+                               learning_rate=experiment_params.pretrain_lr,
+                               val_interval=int(experiment_params.pretrain_epochs/5))
+
+            kwargs = {}
+            if experiment_params.log_interval > -1:
+                kwargs = {'log_interval': experiment_params.log_interval}
+            if experiment_params.n_timesteps>0:
+                logger.info('training the agent')
+                eval_env = create_env(n_envs)
+                evalcb = None
+                if experiment_params.online_eval_freq > 0:      # do online validation
+                    evalcb = EvalCallback(eval_env,n_eval_episodes=experiment_params.online_eval_n_episodes,
+                                          eval_freq=experiment_params.online_eval_freq,
+                                          log_path=output_dir, best_model_save_path=output_dir)
+                model.learn(int(experiment_params.n_timesteps),callback=evalcb, **kwargs)
+                # save evaluation report if needed
+                if experiment_params.online_eval_freq > 0:
+                    online_eval_results_analysis(os.path.join(output_dir,'evaluations.npz'))
+                # Save trained model
+                save_path = output_dir
+                params_path = "{}/{}".format(save_path, 'final_model_params')
+                # os.makedirs(params_path, exist_ok=True)
+                # Only save worker of rank 0 when using mpi
+                if rank == 0:
+                    logger.info("Saving to {}".format(save_path))
+                    model.save(params_path)
+                    # Save hyperparams
+                    # note that in order to save as yaml I need to avoid using classes in the definition.
+                    # e.g. CustomDQNPolicy will not work. I need to put a string and parse it later
+                    with open(os.path.join(output_dir, 'config.yml'), 'w') as f:
+                        yaml.dump(saved_hyperparams, f)
+
+                    if normalize:
+                        # Unwrap
+                        if isinstance(env, VecFrameStack):
+                            env = env.venv
+                        # Important: save the running average, for testing the agent we need that normalization
+                        env.save_running_average(params_path)
     # from now on we treat the trained agent as expert.
     # check if we need to create expert trajectory buffer
     if experiment_params.expert_steps_to_record > 0:
