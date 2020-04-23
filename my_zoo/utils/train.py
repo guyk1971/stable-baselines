@@ -3,16 +3,18 @@
 
 import os
 import warnings
+from typing import Union, List, Dict, Any, Optional
 import gym
 from gym import spaces
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 from stable_baselines.common.cmd_util import make_atari_env
 from stable_baselines.common.vec_env import VecFrameStack, VecEnv, VecNormalize, DummyVecEnv
 from stable_baselines.common.noise import AdaptiveParamNoiseSpec, NormalActionNoise, OrnsteinUhlenbeckActionNoise
 from stable_baselines.common.schedules import get_schedule_fn
 from tqdm import tqdm
-
+from stable_baselines.common.callbacks import EvalCallback,BaseCallback
 from stable_baselines import logger
 from stable_baselines.common.base_class import BaseRLModel,_UnvecWrapper
 from my_zoo.utils.common import title
@@ -168,6 +170,37 @@ def online_eval_results_analysis(npz_filename):
     eval_df.to_csv(df_filename)
     return
 
+
+class OnlEvalTBCallback(EvalCallback):
+    """
+    Custom callback for plotting additional values in tensorboard.
+    """
+    def __init__(self, eval_env: Union[gym.Env, VecEnv],
+                 callback_on_new_best: Optional[BaseCallback] = None,
+                 n_eval_episodes: int = 5,
+                 eval_freq: int = 10000,
+                 log_path: str = None,
+                 best_model_save_path: str = None,
+                 deterministic: bool = True,
+                 render: bool = False,
+                 verbose: int = 1):
+        self.is_tb_set = False
+        super(OnlEvalTBCallback, self).__init__(eval_env,callback_on_new_best,n_eval_episodes,eval_freq,log_path,
+                                                best_model_save_path,deterministic,render,verbose)
+
+    def _on_step(self) -> bool:
+        # Log additional tensor
+        Result = super(OnlEvalTBCallback,self)._on_step()
+        # if not self.is_tb_set:
+        #     with self.model.graph.as_default():
+        #         tf.summary.scalar('onl_eval_mean_reward', self.last_mean_reward)
+        #         self.model.summary = tf.summary.merge_all()
+        #     self.is_tb_set = True
+        # Log scalar value (here a random variable)
+        value = self.last_mean_reward
+        summary = tf.Summary(value=[tf.Summary.Value(tag='onl_eval_mean_reward', simple_value=value)])
+        self.locals['writer'].add_summary(summary, self.num_timesteps)
+        return Result
 
 # batch_rl utils
 def load_experience_traj(csv_path):

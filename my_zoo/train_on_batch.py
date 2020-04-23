@@ -29,10 +29,8 @@ import yaml
 import ast
 from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
-from stable_baselines.common.callbacks import EvalCallback
-from my_zoo.utils.train import load_experience_traj,env_make,generate_experience_traj,online_eval_results_analysis
+from my_zoo.utils.train import load_experience_traj,env_make,generate_experience_traj,online_eval_results_analysis,OnlEvalTBCallback
 from my_zoo.utils.utils import ALGOS
-from stable_baselines.dbcq.dbcq import DBCQ
 from my_zoo.my_envs import L2PEnv
 import shutil
 
@@ -274,10 +272,10 @@ def run_experiment(experiment_params):
             # when training on batch we do callback.on_step() every minibatch of samples
             # thus the online_eval_freq which is given in steps should be converted to minibatches
             eval_freq= int(experiment_params.online_eval_freq/agent_hyperparams['batch_size'])
-            evalcb = EvalCallback(eval_env,
-                                  n_eval_episodes=experiment_params.online_eval_n_episodes,
-                                  eval_freq=eval_freq,
-                                  log_path=output_dir, best_model_save_path=output_dir)
+            evalcb = OnlEvalTBCallback(eval_env,
+                                       n_eval_episodes=experiment_params.online_eval_n_episodes,
+                                       eval_freq=eval_freq,
+                                       log_path=output_dir, best_model_save_path=output_dir)
 
         model.learn(int(experiment_params.n_timesteps),callback=evalcb,tb_log_name='main_agent_train', **kwargs)
         # save evaluation report if needed

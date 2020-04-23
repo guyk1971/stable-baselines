@@ -36,8 +36,8 @@ from my_zoo.utils.utils import ALGOS
 from zoo.utils.hyperparams_opt import hyperparam_optimization
 from stable_baselines.gail import ExpertDataset
 from my_zoo.utils.common import *
-from my_zoo.utils.train import get_create_env,parse_agent_params,generate_experience_traj,load_experience_traj,online_eval_results_analysis
-from stable_baselines.common.callbacks import EvalCallback
+from my_zoo.utils.train import get_create_env,parse_agent_params,generate_experience_traj,load_experience_traj,online_eval_results_analysis,OnlEvalTBCallback
+
 
 
 CONFIGS_DIR = os.path.join(os.path.expanduser('~'),'share','Data','MLA','stbl','configs')
@@ -208,9 +208,10 @@ def run_experiment(experiment_params):
                 eval_env = create_env(n_envs)
                 evalcb = None
                 if experiment_params.online_eval_freq > 0:      # do online validation
-                    evalcb = EvalCallback(eval_env,n_eval_episodes=experiment_params.online_eval_n_episodes,
-                                          eval_freq=experiment_params.online_eval_freq,
-                                          log_path=output_dir, best_model_save_path=output_dir)
+                    evalcb = OnlEvalTBCallback(eval_env,n_eval_episodes=experiment_params.online_eval_n_episodes,
+                                               eval_freq=experiment_params.online_eval_freq,
+                                               log_path=output_dir, best_model_save_path=output_dir)
+
                 model.learn(int(experiment_params.n_timesteps),callback=evalcb, **kwargs)
                 # save evaluation report if needed
                 if experiment_params.online_eval_freq > 0:
