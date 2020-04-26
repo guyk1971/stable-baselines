@@ -117,7 +117,7 @@ from stable_baselines import logger
 class ExperienceDataset(object):
     """
     Dataset for using Batch mode RL.
-
+    Currently supported only for Discrete action space
     The structure of the experience dataset is a dict, saved as an ".npz" archive.
     The dictionary contains the keys 'actions', 'episode_returns', 'rewards', 'obs' and 'episode_starts'.
     The corresponding values have data concatenated across episode: the first axis is the timestep,
@@ -168,6 +168,7 @@ class ExperienceDataset(object):
         observations_tp1 = traj_data['obs_tp1'][:traj_limit_idx]
         rewards = traj_data['rewards'][:traj_limit_idx]
         dones = traj_data['dones'][:traj_limit_idx]
+        infos = traj_data['infos'][:traj_limit_idx]
 
         # obs, actions: shape (N * L, ) + S
         # where N = # episodes, L = episode length
@@ -193,6 +194,7 @@ class ExperienceDataset(object):
         self.observations_tp1 = observations_tp1
         self.rewards = rewards
         self.dones = dones
+        self.infos = infos
 
 
         self.returns = traj_data['episode_returns'][:traj_limit_idx]
@@ -209,13 +211,13 @@ class ExperienceDataset(object):
 
         self.dataloader = None
         self.train_loader = ExperienceDataLoader(train_indices, self.observations, self.actions, self.rewards,
-                                                 self.observations_tp1, self.dones,
+                                                 self.observations_tp1, self.dones,self.infos,
                                                  batch_size,shuffle=self.randomize, start_process=False,
                                                  sequential=sequential_preprocessing)
         self.val_loader = None
         if len(val_indices)>0:
             self.val_loader = ExperienceDataLoader(val_indices, self.observations, self.actions, self.rewards,
-                                                   self.observations_tp1, self.dones,
+                                                   self.observations_tp1, self.dones,self.infos,
                                                    batch_size,shuffle=self.randomize, start_process=False,
                                                    sequential=sequential_preprocessing)
 
@@ -230,7 +232,7 @@ class ExperienceDataset(object):
         """
         indices = np.random.permutation(len(self.observations)).astype(np.int64)
         self.dataloader = ExperienceDataLoader(indices, self.observations, self.actions, self.rewards,
-                                               self.observations_tp1, self.dones,
+                                               self.observations_tp1, self.dones, self.infos,
                                                batch_size, shuffle=self.randomize, start_process=False,
                                                sequential=self.sequential_preprocessing)
 
@@ -315,7 +317,7 @@ class ExperienceDataLoader(object):
         lesser than the batch_size)
     """
 
-    def __init__(self, indices, observations, actions, rewards, observations_tp1, dones,
+    def __init__(self, indices, observations, actions, rewards, observations_tp1, dones, infos,
                  batch_size, n_workers=1, infinite_loop=True, max_queue_len=1, shuffle=False,
                  start_process=True, backend='threading', sequential=False, partial_minibatch=True):
         super(ExperienceDataLoader, self).__init__()
@@ -335,6 +337,7 @@ class ExperienceDataLoader(object):
         self.rewards = rewards
         self.observations_tp1 = observations_tp1
         self.dones = dones
+        self.infos = infos
 
         self.shuffle = shuffle
         self.queue = Queue(max_queue_len)
@@ -388,9 +391,9 @@ class ExperienceDataLoader(object):
         rewards = self.rewards[self._minibatch_indices]
         obs_tp1 = self.observations_tp1[self._minibatch_indices]
         dones = self.dones[self._minibatch_indices]
-
+        infos = self.infos[self._minibatch_indices]
         self.start_idx += self.batch_size
-        return obs, actions, rewards, obs_tp1, dones
+        return obs, actions, rewards, obs_tp1, dones, infos
 
 
     def _run(self):
@@ -422,8 +425,9 @@ class ExperienceDataLoader(object):
                     rewards = self.rewards[self._minibatch_indices]
                     obses_tp1 = self.observations_tp1[self._minibatch_indices]
                     dones = self.dones[self._minibatch_indices]
+                    infos = self.infos[self._minibatch_indices]
 
-                    self.queue.put((obs, actions, rewards, obses_tp1, dones))
+                    self.queue.put((obs, actions, rewards, obses_tp1, dones,infos))
 
                     # Free memory
                     del obs

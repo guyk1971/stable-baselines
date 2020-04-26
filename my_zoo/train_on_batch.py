@@ -112,9 +112,15 @@ def create_experience_buffer(experiment_params,output_dir):
             _ = env.action_space.sample()
         except:
             raise NotImplementedError("random model assumes gym environment (uses its 'sample' method)")
-        def model(obs,gymenv=env):
+        def model(obs,gymenv=env,with_prob=False):
             action = gymenv.action_space.sample()
-            return action
+            if with_prob:
+                assert isinstance(gymenv.action_space,
+                                  gym.spaces.Discrete), "currently supporting action prob in Discrete space only"
+                action_prob = np.array([1./gymenv.action_space.n]*gymenv.action_space.n)
+                return action,action_prob
+            else:
+                return action
     else:
         if ALGOS[algo] is None:
             raise ValueError('{} requires MPI to be installed'.format(algo))
@@ -172,6 +178,26 @@ def load_or_create_experience_buffer(experiment_params,output_dir):
     # if we got to this line, we need to generate an experience buffer
     experience_buffer = create_experience_buffer(experiment_params,output_dir)
     return experience_buffer
+
+def split_dataset(er_buf,eval_fraction=0.2):
+    # do I want to shuffle by episodes before selecting ?
+    n_all_samples = len(er_buf['obs'])
+    n_eval_samples = int(eval_fraction*n_all_samples)
+    # now we need to extract full episodes
+    episode_starts_indxs = np.where(er_buf['episode_starts'])[0]
+    num_episodes_in_eval = np.where(episode_starts_indxs<n_eval_samples)[0][-1]
+    if num_episodes_in_eval==0:
+        logger.warn('eval fraction too low. no episodes where included')
+    # update the number of samples for evaluation (episode aligned)
+    n_eval_samples = episode_starts_indxs[num_episodes_in_eval]
+    train_buf = {k:er_buf[k][n_eval_samples:] for k in er_buf}
+    eval_buf = {k:er_buf[k][:n_eval_samples] for k in er_buf}
+    logger.info('split dataset for offline policy evaluation: {0} samples in {1} episodes in evaluation,\
+     {2} samples in {3} episodes for training'.format(len(eval_buf['obs']),np.sum(eval_buf['episode_starts']),
+                                                      len(train_buf['obs']),np.sum(train_buf['episode_starts'])))
+    return train_buf,eval_buf
+
+
 
 ##############################################################################
 # run experiment
@@ -266,21 +292,42 @@ def run_experiment(experiment_params):
         if experiment_params.log_interval > -1:
             kwargs = {'log_interval': experiment_params.log_interval}
 
-        eval_env = env_make(n_envs,experiment_params.env_params,algo,seed)
+        eval_freq = int(experiment_params.evaluation_freq / agent_hyperparams['batch_size'])
         evalcb = None
-        if experiment_params.online_eval_freq > 0:      # do online validation - doesnt work...
+        if experiment_params.online_eval_n_episodes > 0:
             # when training on batch we do callback.on_step() every minibatch of samples
             # thus the online_eval_freq which is given in steps should be converted to minibatches
-            eval_freq= int(experiment_params.online_eval_freq/agent_hyperparams['batch_size'])
+            eval_env = env_make(n_envs, experiment_params.env_params, algo, seed)
             evalcb = OnlEvalTBCallback(eval_env,
                                        n_eval_episodes=experiment_params.online_eval_n_episodes,
                                        eval_freq=eval_freq,
                                        log_path=output_dir, best_model_save_path=output_dir)
+        opecb = None
+        if experiment_params.off_policy_eval_dataset_eval_fraction > 0:      # do off policy evaluation
+            # when training on batch we do callback.on_step() every minibatch of samples
+            # thus the online_eval_freq which is given in steps should be converted to minibatches
+            er_buf,ope_buf = split_dataset(er_buf,experiment_params.off_policy_eval_dataset_eval_fraction)     # split the dataset
+            # ope_buf should be arranged 'as_episodes'
+            ope_manager = OpeManager(ope_buf,...)
+            eval_freq= int(experiment_params.online_eval_freq/agent_hyperparams['batch_size'])
+            opecb = OffPolicyEvalCallback(eval_env,
+                                       n_eval_episodes=experiment_params.online_eval_n_episodes,
+                                       eval_freq=eval_freq,
+                                       log_path=output_dir, best_model_save_path=output_dir)
 
-        model.learn(int(experiment_params.n_timesteps),callback=evalcb,tb_log_name='main_agent_train', **kwargs)
+
+        model.learn(int(experiment_params.n_timesteps),callback=[evalcb,opecb] ,tb_log_name='main_agent_train', **kwargs)
         # save evaluation report if needed
-        if experiment_params.online_eval_freq > 0:
-            online_eval_results_analysis(os.path.join(output_dir, 'evaluations.npz'))
+        eval_results_files=[]
+        if experiment_params.online_eval_n_episodes > 0:
+            eval_results_files.append(os.path.join(output_dir, 'evaluations.npz'))
+        if experiment_params.off_policy_eval_freq > 0:
+            eval_results_files.append(os.path.join(output_dir, 'ope_results.npz'))
+        # analyze evaluation results for each callback that was used and produce a combined file
+        if len(eval_results_files)>0:
+            eval_results_analysis(eval_results_files)
+
+
 
         # Save trained model
         save_path = output_dir

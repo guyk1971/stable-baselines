@@ -1069,7 +1069,7 @@ class DDPG(OffPolicyRLModel):
                             with open(os.path.join(logdir, 'eval_env_state.pkl'), 'wb') as file_handler:
                                 pickle.dump(self.eval_env.get_state(), file_handler)
 
-    def predict(self, observation, state=None, mask=None, deterministic=True):
+    def predict(self, observation, state=None, mask=None, deterministic=True,with_prob=False):
         observation = np.array(observation)
         vectorized_env = self._is_vectorized_observation(observation, self.observation_space)
 
@@ -1080,6 +1080,9 @@ class DDPG(OffPolicyRLModel):
 
         if not vectorized_env:
             actions = actions[0]
+
+        if with_prob:
+            warnings.warn("Warning: action probability is meaningless for DDPG. Returning None")
 
         return actions, None
 

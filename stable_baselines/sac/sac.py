@@ -523,7 +523,7 @@ class SAC(OffPolicyRLModel):
 
         return None
 
-    def predict(self, observation, state=None, mask=None, deterministic=True):
+    def predict(self, observation, state=None, mask=None, deterministic=True,with_prob=False):
         observation = np.array(observation)
         vectorized_env = self._is_vectorized_observation(observation, self.observation_space)
 
@@ -534,6 +534,10 @@ class SAC(OffPolicyRLModel):
 
         if not vectorized_env:
             actions = actions[0]
+
+        if with_prob:
+            warnings.warn("Even though SAC has a Gaussian policy, it cannot return a distribution as it "
+                          "is squashed by a tanh before being scaled and outputed.")
 
         return actions, None
 

@@ -202,6 +202,10 @@ class OnlEvalTBCallback(EvalCallback):
         self.locals['writer'].add_summary(summary, self.num_timesteps)
         return Result
 
+
+
+
+
 # batch_rl utils
 def load_experience_traj(csv_path):
     # check if there's a numpy_dict version already saved (to save csv load time)
@@ -221,7 +225,7 @@ def load_experience_traj(csv_path):
 
 
 def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=0,
-                         n_timesteps_record=100000,deterministic=True):
+                         n_timesteps_record=100000,deterministic=True,with_prob=True):
     """
     Train expert controller (if needed) and record expert trajectories.
 
@@ -289,22 +293,35 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
     if is_vec_env:
         mask = [True for _ in range(env.num_envs)]
     for t in tqdm(range(n_timesteps_record)):
+        info={}
         if isinstance(model, BaseRLModel):
-            action, state = model.predict(obs, state=state, mask=mask,deterministic=deterministic)
-        else:
-            action = model(obs)
-        new_obs, reward, done, info = env.step(action)
+            if with_prob:
+                action, state, act_prob = model.predict(obs, state=state, mask=mask,deterministic=deterministic,with_prob=True)
+                info.update({'all_action_probabilities': str(act_prob)})
+            else:       # default is with_prob=False
+                action, state = model.predict(obs, state=state, mask=mask,deterministic=deterministic)
+        else:   # random agent that samples uniformly
+            if with_prob:
+                assert isinstance(env.action_space,gym.spaces.Discrete), "currently supporting action prob in Discrete space only"
+                action,act_prob = model(obs,with_prob=True)
+                info.update({'all_action_probabilities': str(act_prob)})
+            else:
+                action = model(obs)
+
+        new_obs, reward, done, _ = env.step(action)
 
         # Note : we save to the experience buffer as if it is not a vectorized env since anyway we
         #        use only first env
+
         if is_vec_env:
             mask = [done[0] for _ in range(env.num_envs)]
             action = np.array([action[0]])
             reward = np.array(reward[0])
             done = np.array([done[0]])
-            replay_buffer.add(obs[0],action[0],reward,new_obs[0],float(done[0]))
+            info = np.array([info[0]])
+            replay_buffer.add(obs[0],action[0],reward,new_obs[0],float(done[0]),info[0])
         else: # Store transition in the replay buffer.
-            replay_buffer.add(obs, action, reward, new_obs, float(done))
+            replay_buffer.add(obs, action, reward, new_obs, float(done),info)
         obs = new_obs
         episode_starts.append(done)
         reward_sum += reward
@@ -322,7 +339,7 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
     # Note : the ReplayBuffer can not generally assume it has not circled around thus cant infer accurate episode
     # statistics. since in this context we know these details, we overwrite the corresponding fields:
     numpy_dict['episode_returns'] = np.array(episode_returns)
-    numpy_dict['episode_starts'] = np.array(episode_starts)
+    numpy_dict['episode_starts'] = np.array(episode_starts[:-1])
     logger.info("Statistics: {0} episodes, average return={1}".format(len(episode_returns),
                                                                       np.mean(numpy_dict['episode_returns'])))
     # assuming we save only the numpy arrays (not the obs_space and act_space)

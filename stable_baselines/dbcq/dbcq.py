@@ -2,6 +2,7 @@ from functools import partial
 
 import tensorflow as tf
 import numpy as np
+from scipy.special import softmax
 import gym
 
 from stable_baselines import logger
@@ -347,18 +348,23 @@ class DBCQ(OffPolicyRLModel):
         callback.on_training_end()
         return self
 
-    def predict(self, observation, state=None, mask=None, deterministic=True):
+    def predict(self, observation, state=None, mask=None, deterministic=True, with_prob=False):
         observation = np.array(observation)
         vectorized_env = self._is_vectorized_observation(observation, self.observation_space)
 
         observation = observation.reshape((-1,) + self.observation_space.shape)
         with self.sess.as_default():
-            actions, _, _ = self.step_model.step(observation, deterministic=deterministic)
+            actions, q_values, _ = self.step_model.step(observation, deterministic=deterministic)
 
         if not vectorized_env:
             actions = actions[0]
+            q_values = q_values[0]
 
-        return actions, None
+        if with_prob:
+            actions_prob = softmax(q_values)
+            return actions,None,actions_prob
+        else:
+            return actions, None
 
     def action_probability(self, observation, state=None, mask=None, actions=None, logp=False):
         observation = np.array(observation)

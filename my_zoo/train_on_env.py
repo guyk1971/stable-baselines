@@ -206,15 +206,20 @@ def run_experiment(experiment_params):
             if experiment_params.n_timesteps>0:
                 logger.info('training the agent')
                 eval_env = create_env(n_envs)
+                # in online algorithms, we call the eval callbacks every single step:
+                eval_freq = int(experiment_params.evaluation_freq)
                 evalcb = None
-                if experiment_params.online_eval_freq > 0:      # do online validation
-                    evalcb = OnlEvalTBCallback(eval_env,n_eval_episodes=experiment_params.online_eval_n_episodes,
-                                               eval_freq=experiment_params.online_eval_freq,
+                if experiment_params.online_eval_n_episodes > 0:
+                    # when training on batch we do callback.on_step() every minibatch of samples
+                    # thus the online_eval_freq which is given in steps should be converted to minibatches
+                    evalcb = OnlEvalTBCallback(eval_env,
+                                               n_eval_episodes=experiment_params.online_eval_n_episodes,
+                                               eval_freq=eval_freq,
                                                log_path=output_dir, best_model_save_path=output_dir)
 
                 model.learn(int(experiment_params.n_timesteps),callback=evalcb, **kwargs)
                 # save evaluation report if needed
-                if experiment_params.online_eval_freq > 0:
+                if experiment_params.online_eval_n_episodes > 0:
                     online_eval_results_analysis(os.path.join(output_dir,'evaluations.npz'))
                 # Save trained model
                 save_path = output_dir

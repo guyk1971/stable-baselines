@@ -52,7 +52,7 @@ class ReplayBuffer(object):
         """
         return len(self) == self.buffer_size
 
-    def add(self, obs_t, action, reward, obs_tp1, done):
+    def add(self, obs_t, action, reward, obs_tp1, done, info=None):
         """
         add a new transition to the buffer
 
@@ -61,8 +61,10 @@ class ReplayBuffer(object):
         :param reward: (float) the reward of the transition
         :param obs_tp1: (Union[np.ndarray, int]) the current observation
         :param done: (bool) is the episode done
+        :param info: (dict) extra information
         """
-        data = (obs_t, action, reward, obs_tp1, done)
+
+        data = (obs_t, action, reward, obs_tp1, done, info or {})
 
         if self._next_idx >= len(self._storage):
             self._storage.append(data)
@@ -70,7 +72,7 @@ class ReplayBuffer(object):
             self._storage[self._next_idx] = data
         self._next_idx = (self._next_idx + 1) % self._maxsize
 
-    def extend(self, obs_t, action, reward, obs_tp1, done):
+    def extend(self, obs_t, action, reward, obs_tp1, done, info=None):
         """
         add a new batch of transitions to the buffer
 
@@ -79,11 +81,12 @@ class ReplayBuffer(object):
         :param reward: (Union[Tuple[float], np.ndarray]) the batch of the rewards of the transition
         :param obs_tp1: (Union[Tuple[Union[np.ndarray, int]], np.ndarray]) the current batch of observations
         :param done: (Union[Tuple[bool], np.ndarray]) terminal status of the batch
-
+        :param info: (Tuple[dict]) extra information
         Note: uses the same names as .add to keep compatibility with named argument passing
                 but expects iterables and arrays with more than 1 dimensions
         """
-        for data in zip(obs_t, action, reward, obs_tp1, done):
+        info = info or tuple([{}]*len(obs_t))
+        for data in zip(obs_t, action, reward, obs_tp1, done,info):
             if self._next_idx >= len(self._storage):
                 self._storage.append(data)
             else:
@@ -110,21 +113,26 @@ class ReplayBuffer(object):
             return env.normalize_reward(reward)
         return reward
 
-    def _encode_sample(self, idxes: Union[List[int], np.ndarray], env: Optional[VecNormalize] = None):
-        obses_t, actions, rewards, obses_tp1, dones = [], [], [], [], []
+    def _encode_sample(self, idxes: Union[List[int], np.ndarray], env: Optional[VecNormalize] = None,with_info=False):
+        obses_t, actions, rewards, obses_tp1, dones, infos = [], [], [], [], [], []
         for i in idxes:
             data = self._storage[i]
-            obs_t, action, reward, obs_tp1, done = data
+            obs_t, action, reward, obs_tp1, done, info = data
             obses_t.append(np.array(obs_t, copy=False))
             actions.append(np.array(action, copy=False))
             rewards.append(reward)
             obses_tp1.append(np.array(obs_tp1, copy=False))
             dones.append(done)
-        return (self._normalize_obs(np.array(obses_t), env),
-                np.array(actions),
-                self._normalize_reward(np.array(rewards), env),
-                self._normalize_obs(np.array(obses_tp1), env),
-                np.array(dones))
+            infos.append(info)
+        encoded_samples = (self._normalize_obs(np.array(obses_t), env),
+                    np.array(actions),
+                    self._normalize_reward(np.array(rewards), env),
+                    self._normalize_obs(np.array(obses_tp1), env),
+                    np.array(dones))
+        if with_info:
+            encoded_samples+=(infos,)
+        return encoded_samples
+
 
     def sample(self, batch_size: int, env: Optional[VecNormalize] = None, **_kwargs):
         """
@@ -168,7 +176,9 @@ class ReplayBuffer(object):
         #     the dataset to maximum number of episodes.
 
         indxs = np.arange(self.buffer_size) if self.is_full() else np.arange(self._next_idx)
-        obses_t, actions, rewards, obses_tp1, dones = self._encode_sample(indxs)
+        encoded_samples = self._encode_sample(indxs,with_info=True)
+        obses_t, actions, rewards, obses_tp1, dones,infos = encoded_samples
+
         n_samples = len(obses_t)
         # note : I chose to represent the buffer as length 1 episodes s.t. ExpertData will provide some statistics
         # about the rewards in the buffer (the statistics is related only to episode returns so representing each
@@ -181,6 +191,7 @@ class ReplayBuffer(object):
             'rewards': rewards,
             'obs_tp1': obses_tp1,
             'dones': dones,
+            'infos': infos,
             'episode_returns': episode_returns,
             'episode_starts': episode_starts
         }
@@ -228,9 +239,8 @@ class ReplayBuffer(object):
                 obs_tp1 = np.array([next_transition[col] for col in state_columns])
                 action = int(current_transition['action'])
                 reward = current_transition['reward']
-                # info is extracted from the csv but currently not saved in the _storage
                 info = {'all_action_probabilities':ast.literal_eval(current_transition['all_action_probabilities'])}
-                transitions.append({'obs_t':obs,'action':action,'reward':reward,'obs_tp1':obs_tp1,'done':0})
+                transitions.append({'obs_t':obs,'action':action,'reward':reward,'obs_tp1':obs_tp1,'done':0,'info':info})
             # set the done flag of the last transition to True
             transitions[-1]['done']=1
             reward_sum = 0.0
@@ -247,7 +257,7 @@ class ReplayBuffer(object):
         # assuming the buffer is full
         found=False
         for t in range(self._maxsize):
-            (_, _, _, _, done) = self._storage[idx]
+            (_, _, _, _, done,_) = self._storage[idx]
             if done:
                 found=True
                 break
@@ -292,13 +302,12 @@ class ReplayBuffer(object):
             num_transitions += self._maxsize
 
         # now we build the dataframe
-        obs,_,_,_,_=self._storage[start_indx]
+        obs,_,_,_,_,_=self._storage[start_indx]
         obs_dim = np.array(obs).size
         idx=start_indx
         ep_id = 0   # episode id generator
         df_cols=['action','all_action_probabilities','episode_name','episode_id','reward',
                                       'transition_number']+['state_feature_{0}'.format(i) for i in range(obs_dim)]
-        df = pd.DataFrame([],columns=df_cols)
         act_prob = '[]'     # currently no information about action probabilities. once we get it from the agent,
                             # we'll add it to the buffer in the info field as a dict:
                             # {'all_action_probabilities': str(numpy array of probabilities)}
@@ -310,8 +319,9 @@ class ReplayBuffer(object):
         ep_name_arr=[episode_name]*num_transitions
         ep_id_arr=[0]*num_transitions
         t_arr=np.arange(num_transitions)
+        act_prob_arr=['[]']*num_transitions
         for t in tqdm(range(num_transitions)):
-            obs_t, action, reward, obs_tp1, done = self._storage[idx]
+            obs_t, action, reward, obs_tp1, done, info = self._storage[idx]
             # currently we're not saving the action probabilities. if we add it, it will be in the info field.
             # add the transition as a row in the dataset
             # {k:v for k,v in zip(df_cols,[a,aap,epn,eid,r,t]+list(obs))}
@@ -321,12 +331,13 @@ class ReplayBuffer(object):
             obs_tp1_arr[t]=obs_tp1
             ep_name_arr[t]=ep_name
             ep_id_arr[t]=ep_id
+            act_prob_arr[t] = info['all_action_probabilities']
             # the episode name is episode_name+'_{0}'.format(ep_id)
             idx = (idx + 1) % self._maxsize
             if done:
                 ep_id+=1
                 ep_name = episode_name + '_{0}'.format(ep_id)
-        df = pd.DataFrame({k: v for k, v in zip(df_cols, [act_arr, act_prob, ep_name_arr, ep_id_arr, rew_arr, t_arr] + [
+        df = pd.DataFrame({k: v for k, v in zip(df_cols, [act_arr, act_prob_arr, ep_name_arr, ep_id_arr, rew_arr, t_arr] + [
             obs_arr[:, c] for c in range(obs_dim)])})
         # df is ready. save to csv
         df.to_csv(filename)
@@ -358,7 +369,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         self._it_min = MinSegmentTree(it_capacity)
         self._max_priority = 1.0
 
-    def add(self, obs_t, action, reward, obs_tp1, done):
+    def add(self, obs_t, action, reward, obs_tp1, done,info=None):
         """
         add a new transition to the buffer
 
@@ -369,11 +380,11 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         :param done: (bool) is the episode done
         """
         idx = self._next_idx
-        super().add(obs_t, action, reward, obs_tp1, done)
+        super().add(obs_t, action, reward, obs_tp1, done,info)
         self._it_sum[idx] = self._max_priority ** self._alpha
         self._it_min[idx] = self._max_priority ** self._alpha
 
-    def extend(self, obs_t, action, reward, obs_tp1, done):
+    def extend(self, obs_t, action, reward, obs_tp1, done, info=None):
         """
         add a new batch of transitions to the buffer
 
@@ -387,7 +398,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
             but expects iterables and arrays with more than 1 dimensions
         """
         idx = self._next_idx
-        super().extend(obs_t, action, reward, obs_tp1, done)
+        super().extend(obs_t, action, reward, obs_tp1, done,info)
         while idx != self._next_idx:
             self._it_sum[idx] = self._max_priority ** self._alpha
             self._it_min[idx] = self._max_priority ** self._alpha

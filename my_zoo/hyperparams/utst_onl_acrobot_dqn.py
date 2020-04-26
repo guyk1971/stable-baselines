@@ -51,12 +51,11 @@ agent_params.prioritized_replay = True
 # Experiment                                             #
 ##########################################################
 experiment_params = ExperimentParams()
-# experiment_params.n_timesteps = 1e6
-experiment_params.n_timesteps = 100000
+experiment_params.n_timesteps = 10000
 experiment_params.env_params = env_params
 experiment_params.agent_params = agent_params
 experiment_params.expert_steps_to_record = 100000  # number of episodes to record into the experience buffer
-experiment_params.online_eval_freq = int(experiment_params.n_timesteps/100)  # evaluate on eval env every this number of timesteps
+experiment_params.evaluation_freq = int(experiment_params.n_timesteps/10)  # evaluate on eval env every this number of timesteps
 experiment_params.online_eval_n_episodes = 30
 experiment_params.name = __name__.split('.')[-1]
 

@@ -492,8 +492,11 @@ class ExperimentParams:
         self.n_timesteps = 1e5          # number of timesteps to train main policy
         self.log_interval = -1          # using algorithm default
 
-        self.online_eval_freq = 0               # evaluate on eval env every this number of timesteps
-        self.online_eval_n_episodes = 100
+        self.evaluation_freq = 0        # evaluate on eval env and/or with ope every this number of timesteps
+        self.online_eval_n_episodes = 10
+
+        self.off_policy_eval_dataset_eval_fraction = 0      # fraction of the data that will be used for evaluation
+                                                            # the rest will be used for training the agent and the reward model
 
         ###### BatchRL #######
         self.expert_model_file = None           # path to expert to generate experience for batch rl (if experience_dataset is not provided)

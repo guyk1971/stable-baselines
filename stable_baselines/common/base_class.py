@@ -395,7 +395,7 @@ class BaseRLModel(ABC):
         pass
 
     @abstractmethod
-    def predict(self, observation, state=None, mask=None, deterministic=False):
+    def predict(self, observation, state=None, mask=None, deterministic=False, with_prob=False):
         """
         Get the model's action from an observation
 
@@ -807,7 +807,7 @@ class ActorCriticRLModel(BaseRLModel):
               log_interval=100, tb_log_name="run", reset_num_timesteps=True):
         pass
 
-    def predict(self, observation, state=None, mask=None, deterministic=False):
+    def predict(self, observation, state=None, mask=None, deterministic=False, with_prob=False):
         if state is None:
             state = self.initial_state
         if mask is None:
@@ -816,7 +816,7 @@ class ActorCriticRLModel(BaseRLModel):
         vectorized_env = self._is_vectorized_observation(observation, self.observation_space)
 
         observation = observation.reshape((-1,) + self.observation_space.shape)
-        actions, _, states, _ = self.step(observation, state, mask, deterministic=deterministic)
+        actions, _, states, neglogp = self.step(observation, state, mask, deterministic=deterministic)
 
         clipped_actions = actions
         # Clip the actions to avoid out of bound error
@@ -827,8 +827,13 @@ class ActorCriticRLModel(BaseRLModel):
             if state is not None:
                 raise ValueError("Error: The environment must be vectorized when using recurrent policies.")
             clipped_actions = clipped_actions[0]
+            neglogp = neglogp[0]
+        actions_prob = np.exp(-neglogp)
 
-        return clipped_actions, states
+        if with_prob:
+            return clipped_actions, states, actions_prob
+        else:
+            return clipped_actions, states
 
     def action_probability(self, observation, state=None, mask=None, actions=None, logp=False):
         if state is None:
@@ -989,7 +994,7 @@ class OffPolicyRLModel(BaseRLModel):
         pass
 
     @abstractmethod
-    def predict(self, observation, state=None, mask=None, deterministic=False):
+    def predict(self, observation, state=None, mask=None, deterministic=False, with_prob=False):
         pass
 
     @abstractmethod
