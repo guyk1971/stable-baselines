@@ -5,10 +5,10 @@
 # it will be called via callback function
 import math
 import numpy as np
-from typing import List
+from typing import Dict
 from collections import namedtuple
 from stable_baselines.common.callbacks import EventCallback
-
+from copy import deepcopy
 
 
 OpeSharedStats = namedtuple("OpeSharedStats", ['all_reward_model_rewards', 'all_policy_probs',
@@ -42,7 +42,7 @@ class DoublyRobust(object):
 class SequentialDoublyRobust(object):
 
     @staticmethod
-    def evaluate(evaluation_dataset_as_episodes: List[Episode], discount_factor: float) -> float:
+    def evaluate(evaluation_dataset_as_episodes: Dict, discount_factor: float) -> float:
         """
         Run the off-policy evaluator to get a score for the goodness of the new policy, based on the dataset,
         which was collected using other policy(ies).
@@ -53,29 +53,41 @@ class SequentialDoublyRobust(object):
 
         :return: the evaluation score
         """
+        episode_starts = np.where(evaluation_dataset_as_episodes['episode_starts'])
+        softmax_policy_prob = evaluation_dataset_as_episodes['infos']['softmax_policy_prob']
+        all_action_prob = evaluation_dataset_as_episodes['infos']['all_action_probabilities']
+        q_values = evaluation_dataset_as_episodes['infos']['q_value']
+        v_value_q_model_based = evaluation_dataset_as_episodes['infos']['v_value_q_model_based']
+        actions = evaluation_dataset_as_episodes['actions']
+        rewards = evaluation_dataset_as_episodes['rewards']
+        episode_limits = [i for i in range(len(episode_starts)) if episode_starts[i]] + [len(episode_starts)]
 
         # Sequential Doubly Robust
         per_episode_seq_dr = []
-
-        for episode in evaluation_dataset_as_episodes:
+        for start,end in zip(episode_limits[:-1],episode_limits[1:]):
+            episode_indxs = range(start,end)
             episode_seq_dr = 0
-            for transition in reversed(episode.transitions):
-                rho = transition.info['softmax_policy_prob'][transition.action] / \
-                      transition.info['all_action_probabilities'][transition.action]
-                episode_seq_dr = transition.info['v_value_q_model_based'] + rho * (transition.reward + discount_factor
-                                                                                   * episode_seq_dr -
-                                                                                   transition.info['q_value'][
-                                                                                       transition.action])
+            for i in reversed(episode_indxs):
+                rho = softmax_policy_prob[i][actions[i]]/all_action_prob[i][actions[i]]
+                episode_seq_dr = v_value_q_model_based[i]+\
+                                 rho*(rewards[i]+discount_factor*episode_seq_dr-q_values[i][actions[i]])
+        # for episode in evaluation_dataset_as_episodes:
+        #     episode_seq_dr = 0
+        #     for transition in reversed(episode.transitions):
+        #         rho = transition.info['softmax_policy_prob'][transition.action] / \
+        #               transition.info['all_action_probabilities'][transition.action]
+        #         episode_seq_dr = transition.info['v_value_q_model_based'] + rho * (transition.reward + discount_factor
+        #                                                                            * episode_seq_dr -
+        #                                                                            transition.info['q_value'][
+        #                                                                                transition.action])
             per_episode_seq_dr.append(episode_seq_dr)
-
         seq_dr = np.array(per_episode_seq_dr).mean()
-
         return seq_dr
 
 class WeightedImportanceSampling(object):
 # TODO add PDIS
     @staticmethod
-    def evaluate(evaluation_dataset_as_episodes: List[Episode]) -> float:
+    def evaluate(evaluation_dataset_as_episodes: Dict,discount_factor: float) -> float:
         """
         Run the off-policy evaluator to get a score for the goodness of the new policy, based on the dataset,
         which was collected using other policy(ies).
@@ -87,32 +99,52 @@ class WeightedImportanceSampling(object):
 
         :return: the evaluation score
         """
+        episode_starts = evaluation_dataset_as_episodes['episode_starts']
+        softmax_policy_prob = evaluation_dataset_as_episodes['infos']['softmax_policy_prob']
+        all_action_prob = evaluation_dataset_as_episodes['infos']['all_action_probabilities']
+        actions = evaluation_dataset_as_episodes['actions']
+        rewards = evaluation_dataset_as_episodes['rewards']
+        episode_limits = [i for i in range(len(episode_starts)) if episode_starts[i]]+[len(episode_starts)]
 
         # Weighted Importance Sampling
         per_episode_w_i = []
+        episode_discounted_rewards=[]
+        for start,end in zip(episode_limits[:-1],episode_limits[1:]):
+            episode_indxs = range(start,end)
+            w_i=1
+            episode_discounted_reward=0
+            gamma = 1.0
+            for i in episode_indxs:
+                episode_discounted_reward += gamma * rewards[i]
+                gamma *= discount_factor
+                w_i *= (softmax_policy_prob[i][actions[i]]/all_action_prob[i][actions[i]])
 
-        for episode in evaluation_dataset_as_episodes:
-            w_i = 1
-            for transition in episode.transitions:
-                w_i *= transition.info['softmax_policy_prob'][transition.action] / \
-                      transition.info['all_action_probabilities'][transition.action]
+        # for episode in evaluation_dataset_as_episodes:
+        #     w_i = 1
+        #     for transition in episode.transitions:
+        #         w_i *= transition.info['softmax_policy_prob'][transition.action] / \
+        #               transition.info['all_action_probabilities'][transition.action]
             per_episode_w_i.append(w_i)
+            episode_discounted_rewards.append(episode_discounted_reward)
+
 
         total_w_i_sum_across_episodes = sum(per_episode_w_i)
 
         wis = 0
         if total_w_i_sum_across_episodes != 0:
-            for i, episode in enumerate(evaluation_dataset_as_episodes):
-                if len(episode.transitions) != 0:
-                    wis += per_episode_w_i[i] * episode.transitions[0].n_step_discounted_rewards
+            for i in range(len(episode_starts)):
+                wis += per_episode_w_i[i] * episode_discounted_rewards[i]
+            # for i, episode in enumerate(evaluation_dataset_as_episodes):
+            #     if len(episode.transitions) != 0:         # can we have 0 length episodes ???
+            #         wis += per_episode_w_i[i] * episode.transitions[0].n_step_discounted_rewards
             wis /= total_w_i_sum_across_episodes
 
         return wis
 
 
-class OpeManager(object):
+class OPEManager(object):
     def __init__(self,evaluation_dataset_as_episodes):
-        self.evaluation_dataset_as_episodes=evaluation_dataset_as_episodes
+        self.evaluation_dataset_as_episodes= deepcopy(evaluation_dataset_as_episodes)
         self.evaluation_dataset_as_transitions = None
         self.doubly_robust = DoublyRobust()
         self.sequential_doubly_robust = SequentialDoublyRobust()
@@ -134,11 +166,11 @@ class OpeManager(object):
         # evaluation_dataset_as_episodes is a dict of numpy arrays with the following keys:
         # ['actions','obs','rewards','obs_tp1','dones','episode_returns','episode_starts']
         # do I want to arrange it as set of transitions ?
-        self.evaluation_dataset_as_transitions = [t for e in self.evaluation_dataset_as_episodes
-                                                  for t in e.transitions]
+        # self.evaluation_dataset_as_transitions = [t for e in self.evaluation_dataset_as_episodes
+        #                                           for t in e.transitions]
+        self.evaluation_dataset_as_transitions = self.evaluation_dataset_as_episodes
 
-    def _prepare_ope_shared_stats(self, evaluation_dataset_as_transitions: List[Transition], batch_size: int,
-                                  reward_model,q_network: Architecture, network_keys: List) -> OpeSharedStats:
+    def _prepare_ope_shared_stats(self, batch_size,reward_model,policy_model) -> OpeSharedStats:
         """
         Do the preparations needed for different estimators.
         Some of the calcuations are shared, so we centralize all the work here.
@@ -146,42 +178,30 @@ class OpeManager(object):
         :param evaluation_dataset_as_transitions: The evaluation dataset in the form of transitions.
         :param batch_size: The batch size to use.
         :param reward_model: A reward model to be used by DR
-        :param q_network: The Q network whose its policy we evaluate.
-        :param network_keys: The network keys used for feeding the neural networks.
+        :param policy_model: The Q network whose policy we evaluate.
         :return:
         """
 
-        assert self.is_gathered_static_shared_data, "gather_static_shared_stats() should be called once before " \
-                                                    "calling _prepare_ope_shared_stats()"
-
         if not self.is_gathered_static_shared_data:
-            self._gather_static_shared_stats(...)       # todo: complete argument list
+            self._gather_static_shared_stats(batch_size,reward_model)
 
         # IPS
         all_policy_probs = []
         all_v_values_reward_model_based, all_v_values_q_model_based = [], []
 
-        for i in range(math.ceil(len(evaluation_dataset_as_transitions) / batch_size)):
-            batch = evaluation_dataset_as_transitions[i * batch_size: (i + 1) * batch_size]
-            batch_for_inference = Batch(batch)
-
-            # we always use the first Q head to calculate OPEs. might want to change this in the future.
-            # for instance, this means that for bootstrapped dqn we always use the first QHead to calculate the OPEs.
-            q_values, sm_values = q_network.predict(batch_for_inference.states(network_keys),
-                                                    outputs=[q_network.output_heads[0].q_values,
-                                                             q_network.output_heads[0].softmax])
-
+        for i in range(math.ceil(len(self.evaluation_dataset_as_transitions) / batch_size)):
+            batch_states = self.evaluation_dataset_as_transitions['obs'][i * batch_size: (i + 1) * batch_size]
+            q_values, _, sm_values = policy_model.predict(batch_states,with_prob=True)
             all_policy_probs.append(sm_values)
             all_v_values_reward_model_based.append(np.sum(all_policy_probs[-1] * self.all_reward_model_rewards[i],
                                                           axis=1))
             all_v_values_q_model_based.append(np.sum(all_policy_probs[-1] * q_values, axis=1))
-
-            for j, t in enumerate(batch):
-                t.update_info({
+            batch_infos = self.evaluation_dataset_as_transitions['infos'][i * batch_size: (i + 1) * batch_size]
+            for j,info in enumerate(batch_infos):
+                info.update({
                     'q_value': q_values[j],
                     'softmax_policy_prob': all_policy_probs[-1][j],
                     'v_value_q_model_based': all_v_values_q_model_based[-1][j],
-
                 })
 
         all_policy_probs = np.concatenate(all_policy_probs, axis=0)
@@ -195,23 +215,24 @@ class OpeManager(object):
                               self.all_rewards, self.all_actions, self.all_old_policy_probs, new_policy_prob,
                               rho_all_dataset)
 
-    def _gather_static_shared_stats(self, evaluation_dataset_as_transitions: List[Transition], batch_size: int,
-                                   reward_model: Architecture, network_keys: List) -> None:
+    def _gather_static_shared_stats(self,  batch_size: int, reward_model) -> None:
+        # todo: what type is the reward_model ?
         all_reward_model_rewards = []
         all_old_policy_probs = []
         all_rewards = []
         all_actions = []
 
-        for i in range(math.ceil(len(evaluation_dataset_as_transitions) / batch_size)):
-            batch = evaluation_dataset_as_transitions[i * batch_size: (i + 1) * batch_size]
-            batch_for_inference = Batch(batch)
-
-            all_reward_model_rewards.append(reward_model.predict(batch_for_inference.states(network_keys)))
-            all_rewards.append(batch_for_inference.rewards())
-            all_actions.append(batch_for_inference.actions())
-            all_old_policy_probs.append(batch_for_inference.info('all_action_probabilities')
-                                        [range(len(batch_for_inference.actions())),
-                                         batch_for_inference.actions()])
+        # option 1 : process as mini batches
+        for i in range(math.ceil(len(self.evaluation_dataset_as_transitions) / batch_size)):
+            batch_states = self.evaluation_dataset_as_transitions['obs'][i * batch_size: (i + 1) * batch_size]
+            batch_rewards = self.evaluation_dataset_as_transitions['rewards'][i * batch_size: (i + 1) * batch_size]
+            batch_actions = self.evaluation_dataset_as_transitions['actions'][i * batch_size: (i + 1) * batch_size]
+            batch_infos = self.evaluation_dataset_as_transitions['infos'][i * batch_size: (i + 1) * batch_size]
+            batch_action_probs = np.concatenate([i['all_action_probabilities'] for i in batch_infos])
+            all_reward_model_rewards.append(reward_model.predict(batch_states))
+            all_rewards.append(batch_rewards)
+            all_actions.append(batch_actions)
+            all_old_policy_probs.append(batch_action_probs[range(len(batch_actions)),batch_actions])
 
         self.all_reward_model_rewards = np.concatenate(all_reward_model_rewards, axis=0)
         self.all_old_policy_probs = np.concatenate(all_old_policy_probs, axis=0)
@@ -221,28 +242,23 @@ class OpeManager(object):
         # mark that static shared data was collected and ready to be used
         self.is_gathered_static_shared_data = True
 
-    def evaluate(self, evaluation_dataset_as_episodes: List[Episode],
-                 evaluation_dataset_as_transitions: List[Transition], batch_size: int,
-                 discount_factor: float, q_network: Architecture, network_keys: List) -> OpeEstimation:
+    def evaluate(self, batch_size: int,discount_factor: float, reward_model, policy_model) -> OpeEstimation:
         """
         Run all the OPEs and get estimations of the current policy performance based on the evaluation dataset.
 
-        :param evaluation_dataset_as_episodes: The evaluation dataset in a form of episodes.
-        :param evaluation_dataset_as_transitions: The evaluation dataset in a form of transitions.
         :param batch_size: Batch size to use for the estimators.
         :param discount_factor: The standard RL discount factor.
         :param reward_model: A reward model to be used by DR
-        :param q_network: The Q network whose its policy we evaluate.
-        :param network_keys: The network keys used for feeding the neural networks.
+        :param policy_model: The Q network whose its policy we evaluate.
+
 
         :return: An OpeEstimation tuple which groups together all the OPE estimations
         """
-        ope_shared_stats = self._prepare_ope_shared_stats(evaluation_dataset_as_transitions, batch_size, q_network,
-                                                          network_keys)
+        ope_shared_stats = self._prepare_ope_shared_stats(batch_size, reward_model, policy_model)
 
         ips, dm, dr = self.doubly_robust.evaluate(ope_shared_stats)
-        seq_dr = self.sequential_doubly_robust.evaluate(evaluation_dataset_as_episodes, discount_factor)
-        wis = self.weighted_importance_sampling.evaluate(evaluation_dataset_as_episodes)
+        seq_dr = self.sequential_doubly_robust.evaluate(self.evaluation_dataset_as_episodes, discount_factor)
+        wis = self.weighted_importance_sampling.evaluate(self.evaluation_dataset_as_episodes)
 
         return OpeEstimation(ips, dm, dr, seq_dr, wis)
 

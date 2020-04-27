@@ -297,14 +297,16 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
         if isinstance(model, BaseRLModel):
             if with_prob:
                 action, state, act_prob = model.predict(obs, state=state, mask=mask,deterministic=deterministic,with_prob=True)
-                info.update({'all_action_probabilities': str(act_prob)})
+                # info.update({'all_action_probabilities': str(act_prob)})
+                info.update({'all_action_probabilities': act_prob})
             else:       # default is with_prob=False
                 action, state = model.predict(obs, state=state, mask=mask,deterministic=deterministic)
         else:   # random agent that samples uniformly
             if with_prob:
                 assert isinstance(env.action_space,gym.spaces.Discrete), "currently supporting action prob in Discrete space only"
                 action,act_prob = model(obs,with_prob=True)
-                info.update({'all_action_probabilities': str(act_prob)})
+                # info.update({'all_action_probabilities': str(act_prob)})
+                info.update({'all_action_probabilities': act_prob})
             else:
                 action = model(obs)
 

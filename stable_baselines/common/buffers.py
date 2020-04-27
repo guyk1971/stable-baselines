@@ -331,7 +331,7 @@ class ReplayBuffer(object):
             obs_tp1_arr[t]=obs_tp1
             ep_name_arr[t]=ep_name
             ep_id_arr[t]=ep_id
-            act_prob_arr[t] = info['all_action_probabilities']
+            act_prob_arr[t] = str(info['all_action_probabilities'])
             # the episode name is episode_name+'_{0}'.format(ep_id)
             idx = (idx + 1) % self._maxsize
             if done:

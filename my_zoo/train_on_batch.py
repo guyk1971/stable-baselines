@@ -29,6 +29,7 @@ import yaml
 import ast
 from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
+from stable_baselines.common.ope import OPEManager,OffPolicyEvalCallback
 from my_zoo.utils.train import load_experience_traj,env_make,generate_experience_traj,online_eval_results_analysis,OnlEvalTBCallback
 from my_zoo.utils.utils import ALGOS
 from my_zoo.my_envs import L2PEnv
@@ -308,13 +309,10 @@ def run_experiment(experiment_params):
             # thus the online_eval_freq which is given in steps should be converted to minibatches
             er_buf,ope_buf = split_dataset(er_buf,experiment_params.off_policy_eval_dataset_eval_fraction)     # split the dataset
             # ope_buf should be arranged 'as_episodes'
-            ope_manager = OpeManager(ope_buf,...)
-            eval_freq= int(experiment_params.online_eval_freq/agent_hyperparams['batch_size'])
-            opecb = OffPolicyEvalCallback(eval_env,
-                                       n_eval_episodes=experiment_params.online_eval_n_episodes,
-                                       eval_freq=eval_freq,
-                                       log_path=output_dir, best_model_save_path=output_dir)
-
+            ope_manager = OPEManager(ope_buf)
+            opecb = OffPolicyEvalCallback(ope_manager,
+                                          eval_freq=eval_freq,
+                                          log_path=output_dir, best_model_save_path=output_dir)
 
         model.learn(int(experiment_params.n_timesteps),callback=[evalcb,opecb] ,tb_log_name='main_agent_train', **kwargs)
         # save evaluation report if needed

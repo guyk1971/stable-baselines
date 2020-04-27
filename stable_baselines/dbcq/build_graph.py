@@ -170,7 +170,7 @@ def build_act(q_func, ob_space, ac_space, stochastic_ph,update_eps_ph, sess):
     return act, obs_phs
 
 
-def build_train(q_func, gen_act_policy, ob_space, ac_space, sess, grad_norm_clipping=None,
+def build_train(q_func, gen_act_policy, ob_space, ac_space, sess, reward_model=None,grad_norm_clipping=None,
                 gen_train_with_main=False, gamma=1.0, scope="dbcq", reuse=None,param_noise=False,
                 full_tensorboard_log=False):
     """
@@ -183,6 +183,7 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, sess, grad_norm_clip
     :param reuse: (bool) whether or not to reuse the graph variables
     :param optimizer: (tf.train.Optimizer) optimizer to use for the Q-learning objective.
     :param sess: (TensorFlow session) The current TensorFlow session
+    :param reward_model: (DQNPolicy) a model to estimate the reward (for batch rl - off policy evaluation)
     :param grad_norm_clipping: (float) clip gradient norms to this value. If None no clipping is performed.
     :param gen_train_with_main: (bool) if true, train generative model while training the main policy
     :param gamma: (float) discount rate.
@@ -259,6 +260,13 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, sess, grad_norm_clip
         # gen_optimizer = copy.deepcopy(optimizer)        # for online training use the same optimizer as the main network
         gen_optimizer = tf.train.AdamOptimizer(learning_rate_ph)
 
+        # reward model network - for off policy evaluation
+        ope_reward_model = None
+        if reward_model:
+            with tf.variable_scope("ope_reward_model", reuse=False):
+                ope_reward_model = reward_model(sess, ob_space, ac_space, 1, 1, None, reuse=False)
+        # ope_reward_model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
+        #                                           scope=tf.get_variable_scope().name + "/ope_reward_model")
 
 
     with tf.variable_scope("loss", reuse=reuse):
@@ -377,4 +385,4 @@ def build_train(q_func, gen_act_policy, ob_space, ac_space, sess, grad_norm_clip
     )
     update_target = tf_util.function([], [], updates=[update_target_expr])
 
-    return act_f, train, update_target, step_model, gen_act_model
+    return act_f, train, update_target, step_model, gen_act_model,ope_reward_model

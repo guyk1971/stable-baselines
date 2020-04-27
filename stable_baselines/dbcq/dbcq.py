@@ -9,9 +9,7 @@ from stable_baselines import logger
 from stable_baselines.common import tf_util, OffPolicyRLModel, SetVerbosity, TensorboardWriter
 from stable_baselines.dbcq.build_graph import build_train
 from stable_baselines.deepq.policies import DQNPolicy
-from stable_baselines.gail import ExpertDataset
 from stable_baselines.common.dataset import ExperienceDataset
-from stable_baselines.common.evaluation import evaluate_policy as online_policy_eval
 from stable_baselines.common.schedules import get_schedule_fn
 
 
@@ -83,6 +81,7 @@ class DBCQ(OffPolicyRLModel):
         self._train_step = None
         self.step_model = None
         self.gen_act_model = None
+        self.ope_reward_model = None
         self.update_target = None
         self.act = None
         self.proba_step = None
@@ -103,6 +102,10 @@ class DBCQ(OffPolicyRLModel):
         policy = self.gen_act_model
         return policy.obs_ph, tf.placeholder(tf.int32, [None]), policy.q_values
 
+    def _get_ope_reward_placeholders(self):
+        # obs, action,reward,q_values
+        policy = self.ope_reward_model
+        return policy.obs_ph, tf.placeholder(tf.int32, [None]), tf.placeholder(tf.float32, [None]), policy.q_values
 
     def setup_model(self):
 
@@ -134,12 +137,13 @@ class DBCQ(OffPolicyRLModel):
                 # the placeholder
                 # optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
                 # build the training graph operations
-                self.act, self._train_step, self.update_target, self.step_model,self.gen_act_model = build_train(
+                self.act, self._train_step, self.update_target, self.step_model,self.gen_act_model, \
+                self.ope_reward_model = build_train(
                     q_func=partial(self.policy, **self.policy_kwargs),
                     gen_act_policy=self.gen_act_policy,
                     ob_space=self.observation_space,
                     ac_space=self.action_space,
-                    # optimizer=optimizer,
+                    reward_model= partial(self.policy, **self.policy_kwargs),
                     gamma=self.gamma,
                     grad_norm_clipping=10,
                     gen_train_with_main=self.gen_train_with_main,
@@ -150,7 +154,7 @@ class DBCQ(OffPolicyRLModel):
                 self.proba_step = self.step_model.proba_step
                 self.params = tf_util.get_trainable_vars("dbcq")
                 self.gen_act_trainables = tf_util.get_trainable_vars("dbcq/gen_act_model")
-
+                self.ope_reward_trainables = tf_util.get_trainable_vars("dbcq/ope_reward_model")
                 # Initialize the parameters and copy them to the target network.
                 tf_util.initialize(self.sess)
                 self.update_target(sess=self.sess)
@@ -175,6 +179,11 @@ class DBCQ(OffPolicyRLModel):
         # look at how the base model performs the pretraining. you should do the same here.
         # currently we assume the generative model is neural network.
         # todo: add support in knn
+
+        # Note : here we train all models involved in batch rl
+        #   - generative model for DBCQ
+        #   - reward model for OPE
+
         self.verbose = 1        # for debug
         if self.gen_act_params is None:
             n_epochs = 50
@@ -193,10 +202,11 @@ class DBCQ(OffPolicyRLModel):
                 val_interval = 1
             else:
                 val_interval = int(n_epochs / 10)
-        dataset = ExpertDataset(traj_data=self.replay_buffer,train_fraction=train_frac,batch_size=batch_size,
+        dataset = ExperienceDataset(traj_data=self.replay_buffer,train_fraction=train_frac,batch_size=batch_size,
                                 sequential_preprocessing=True)
         with self.graph.as_default():
-            with tf.variable_scope('gen_act_train'):
+            # build the graph for generative model
+            with tf.variable_scope('gen_act_pretrain'):
                 obs_ph, actions_ph, actions_logits_ph = self._get_gen_act_placeholders()
                 one_hot_actions = tf.one_hot(actions_ph, self.action_space.n)
                 loss = tf.nn.softmax_cross_entropy_with_logits_v2(
@@ -206,45 +216,68 @@ class DBCQ(OffPolicyRLModel):
                 loss = tf.reduce_mean(loss)
                 optimizer = tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-8)
                 optim_op = optimizer.minimize(loss, var_list=self.gen_act_trainables)
-
+                tf.summary.scalar('gen_pretrain_loss',loss)
+            # build the graph for reward model (for off policy evaluation)
+            with tf.variable_scope('ope_reward_pretrain'):
+                obs_ph, actions_ph, rewards_ph, model_rewards_ph = self._get_ope_reward_placeholders()
+                one_hot_actions = tf.one_hot(actions_ph, self.action_space.n)
+                target_rewards = tf.stop_gradient(tf.where(one_hot_actions, rewards_ph, model_rewards_ph))
+                rew_loss = tf_util.mse(model_rewards_ph,target_rewards)
+                rew_optimizer = tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-8)
+                rew_optim_op = rew_optimizer.minimize(rew_loss, var_list=self.ope_reward_trainables)
+                tf.summary.scalar('gen_pretrain_loss', loss)
+            pretrain_summary=tf.summary.merge_all()
             self.sess.run(tf.global_variables_initializer())
 
         if self.verbose > 0:
             logger.info("Training generative model with Behavior Cloning...")
 
         for epoch_idx in range(int(n_epochs)):
-            train_loss = 0.0
+            gen_epoch_loss = 0.0
+            rew_epoch_loss = 0.0
             # Full pass on the training set
             for _ in range(len(dataset.train_loader)):
-                expert_obs, expert_actions = dataset.get_next_batch('train')
+                expert_obs, expert_actions,expert_rewards,_,_,_ = dataset.get_next_batch('train')
                 # expert_actions = 3* np.ones_like(expert_actions)   # GK for debug
                 feed_dict = {
                     obs_ph: expert_obs,
                     actions_ph: expert_actions,
+                    rewards_ph: expert_rewards
                 }
-                train_loss_, _ = self.sess.run([loss, optim_op], feed_dict)
-                train_loss += train_loss_
+                gen_batch_loss, _, rew_batch_loss,_,summary = self.sess.run([loss, optim_op,rew_loss,rew_optim_op],
+                                                                              feed_dict)
+                gen_epoch_loss += gen_batch_loss
+                rew_epoch_loss += rew_batch_loss
 
-            train_loss /= len(dataset.train_loader)
+            gen_epoch_loss /= len(dataset.train_loader)
+            rew_epoch_loss /= len(dataset.train_loader)
 
             if self.verbose > 0 and (epoch_idx + 1) % val_interval == 0:
-                val_loss = 0.0
+                gen_val_loss = 0.0
+                rew_val_loss = 0.0
                 # Full pass on the validation set
                 for _ in range(len(dataset.val_loader)):
-                    expert_obs, expert_actions = dataset.get_next_batch('val')
-                    # expert_actions= 3 * np.ones_like(expert_actions)  # GK for debug
-                    val_loss_, = self.sess.run([loss], {obs_ph: expert_obs,
-                                                        actions_ph: expert_actions})
-                    val_loss += val_loss_
+                    expert_obs, expert_actions,expert_rewards,_,_,_ = dataset.get_next_batch('val')
+                    feed_dict = {
+                        obs_ph: expert_obs,
+                        actions_ph: expert_actions,
+                        rewards_ph: expert_rewards
+                    }
+                    gen_batch_loss, rew_batch_loss= self.sess.run([loss,rew_loss], feed_dict)
+                    gen_val_loss += gen_batch_loss
+                    rew_val_loss += rew_batch_loss
 
-                val_loss /= len(dataset.val_loader)
+                gen_val_loss /= len(dataset.val_loader)
+                rew_val_loss /= len(dataset.val_loader)
                 if self.verbose > 0:
                     # logger.info("==== Gen Model Training progress {:.2f}% ====".format(100 * (epoch_idx + 1) / n_epochs))
                     # logger.info("Training loss: {:.6f}, Validation loss: {:.6f} \n".format(train_loss, val_loss))
-                    logger.info("=== Gen Model Training epoch {0}/{1}: train loss {2:.6f}, val loss {3:.6f} ===\n"
-                                .format(epoch_idx,n_epochs,train_loss,val_loss))
+                    logger.info("================ Pre-Training epoch {0}/{1}: =============\n".format(epoch_idx,n_epochs))
+                    logger.info("Gen Model: train loss {0:.6f}, val loss {1:.6f} ===\n".format(gen_epoch_loss,gen_val_loss))
+                    logger.info(
+                        "Reward Model: train loss {0:.6f}, val loss {1:.6f} ===\n".format(rew_epoch_loss, rew_val_loss))
             # Free memory
-            del expert_obs, expert_actions
+            del expert_obs, expert_actions, expert_rewards
         return
 
     def learn(self, total_timesteps, callback=None, log_interval=10, tb_log_name="DBCQ",
