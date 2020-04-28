@@ -30,7 +30,7 @@ import ast
 from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
 from stable_baselines.common.ope import OPEManager,OffPolicyEvalCallback
-from my_zoo.utils.train import load_experience_traj,env_make,generate_experience_traj,online_eval_results_analysis,\
+from my_zoo.utils.train import load_experience_traj,env_make,generate_experience_traj,eval_results_analysis,\
     OnlEvalTBCallback,UniformRandomModel
 from my_zoo.utils.utils import ALGOS
 from my_zoo.my_envs import L2PEnv
@@ -309,16 +309,8 @@ def run_experiment(experiment_params):
 
         model.learn(int(experiment_params.n_timesteps),callback=[evalcb,opecb] ,tb_log_name='main_agent_train', **kwargs)
         # save evaluation report if needed
-        eval_results_files=[]
-        if experiment_params.online_eval_n_episodes > 0:
-            eval_results_files.append(os.path.join(output_dir, 'evaluations.npz'))
-        if experiment_params.off_policy_eval_freq > 0:
-            eval_results_files.append(os.path.join(output_dir, 'ope_results.npz'))
-        # analyze evaluation results for each callback that was used and produce a combined file
-        if len(eval_results_files)>0:
-            eval_results_analysis(eval_results_files)
-
-
+        if (experiment_params.online_eval_n_episodes > 0) or (experiment_params.off_policy_eval_freq > 0):
+            eval_results_analysis(output_dir)
 
         # Save trained model
         save_path = output_dir
@@ -343,6 +335,8 @@ def run_experiment(experiment_params):
         logger.info('Generating expert experience buffer with ' + exp_agent_algo)
         _ = generate_experience_traj(model, save_path=exp_buf_filename, env=env,
                                      n_timesteps_record=experiment_params.expert_steps_to_record)
+
+    logger.info(title("completed experiment seed {}".format(seed),30))
     return
 
 

@@ -169,7 +169,45 @@ def online_eval_results_analysis(npz_filename):
     # save csv filename
     df_filename = os.path.splitext(npz_filename)[0]+'.csv'
     eval_df.to_csv(df_filename)
+    return eval_df
+
+def ope_results_analysis(npz_filename):
+    if not os.path.exists(npz_filename):
+        logger.warn('off policy evaluation results file not found')
+        return
+    # todo: complete this function.
+    eval_np = np.load(npz_filename)
+    eval_dict = {k:v for k,v in eval_np.items()}
+    # replace 'results' with 'mean_rew' and 'std_rew':
+    eval_dict['reward_mean'] = np.squeeze(eval_dict['results']).mean(axis=1)
+    eval_dict['reward_std'] = np.squeeze(eval_dict['results']).std(axis=1)
+    del eval_dict['results']
+    eval_dict['ep_lengths_mean'] = eval_dict['ep_lengths'].mean(axis=1)
+    eval_dict['ep_lengths_std']= eval_dict['ep_lengths'].std(axis=1)
+    del eval_dict['ep_lengths']
+    eval_df = pd.DataFrame(eval_dict)
+    eval_df.set_index('timesteps',inplace=True)
+    # save csv filename
+    df_filename = os.path.splitext(npz_filename)[0]+'.csv'
+    eval_df.to_csv(df_filename)
+    return eval_df
+
+def eval_results_analysis(output_dir):
+    eval_results_files = {'onl_eval_results': os.path.join(output_dir, 'evaluations.npz'),
+                          'ope_results': os.path.join(output_dir, 'ope_results.npz')}
+    eval_df = pd.DataFrame()
+    if os.path.exists(eval_results_files['onl_eval_results']):
+        onl_df=online_eval_results_analysis(eval_results_files['onl_eval_results'])
+        eval_df=pd.concat([eval_df,onl_df],axis=1)
+    if os.path.exists(eval_results_files['ope_results']):
+        ope_df=ope_results_analysis(eval_results_files['ope_results'])
+        eval_df = pd.concat([eval_df, ope_df], axis=1)
+    # save csv filename
+    df_filename = os.path.join(output_dir,'eval_results.csv')
+    eval_df.to_csv(df_filename)
     return
+
+
 
 
 class UniformRandomModel(object):

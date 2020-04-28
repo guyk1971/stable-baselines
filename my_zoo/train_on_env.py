@@ -250,7 +250,7 @@ def run_experiment(experiment_params):
         _ = generate_experience_traj(model, save_path=exp_buf_filename, env=env,
                                      n_timesteps_record=experiment_params.expert_steps_to_record)
 
-    logger.info(title("completed experiment seed {seed}",30))
+    logger.info(title("completed experiment seed {}".format(seed),30))
     return
 
 
