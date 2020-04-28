@@ -1,15 +1,17 @@
 # ope.py
 # implementation of off policy evaluation tools
-# based on the Intel Coach
+# based on Intel Coach
 # Note: the ope manager will be used for evaluation on experience buffer
 # it will be called via callback function
+import os
 import math
 import numpy as np
-from typing import Dict
+from typing import Union, List, Dict, Any, Optional
+import warnings
 from collections import namedtuple
-from stable_baselines.common.callbacks import EventCallback
+from stable_baselines.common.callbacks import EventCallback,BaseCallback
 from copy import deepcopy
-
+from stable_baselines import logger
 
 OpeSharedStats = namedtuple("OpeSharedStats", ['all_reward_model_rewards', 'all_policy_probs',
                                                'all_v_values_reward_model_based', 'all_rewards', 'all_actions',
@@ -143,9 +145,10 @@ class WeightedImportanceSampling(object):
 
 
 class OPEManager(object):
-    def __init__(self,evaluation_dataset_as_episodes):
+    def __init__(self,evaluation_dataset_as_episodes,env_id):
         self.evaluation_dataset_as_episodes= deepcopy(evaluation_dataset_as_episodes)
         self.evaluation_dataset_as_transitions = None
+        self.env_id = env_id
         self.doubly_robust = DoublyRobust()
         self.sequential_doubly_robust = SequentialDoublyRobust()
         self.weighted_importance_sampling = WeightedImportanceSampling()
@@ -155,22 +158,11 @@ class OPEManager(object):
         self.all_actions = None
         self.is_gathered_static_shared_data = False
 
-        # todo: get the evaluation_dataset_as_episodes as input and create the evaluation_dataset_as_transitions from it
-        # todo: who should own the reward_model ? who defines its topology ? --> the agent.
-        # in agents that support training on batch we'll add another network
-        # for training the reward model and we'll train it in a similar way that DBCQ trains its generative model
-        # note that we cant train it here since the OPE doesnt get the training dataset.
-        # it means that at the first call to the evaluation, when the reward model is assumed to be already trained,
-        # we'll call the _gather_static_shared_data
-
         # evaluation_dataset_as_episodes is a dict of numpy arrays with the following keys:
         # ['actions','obs','rewards','obs_tp1','dones','episode_returns','episode_starts']
-        # do I want to arrange it as set of transitions ?
-        # self.evaluation_dataset_as_transitions = [t for e in self.evaluation_dataset_as_episodes
-        #                                           for t in e.transitions]
         self.evaluation_dataset_as_transitions = self.evaluation_dataset_as_episodes
 
-    def _prepare_ope_shared_stats(self, batch_size,reward_model,policy_model) -> OpeSharedStats:
+    def _prepare_ope_shared_stats(self, batch_size,reward_model_predict,policy_model_predict) -> OpeSharedStats:
         """
         Do the preparations needed for different estimators.
         Some of the calcuations are shared, so we centralize all the work here.
@@ -183,7 +175,7 @@ class OPEManager(object):
         """
 
         if not self.is_gathered_static_shared_data:
-            self._gather_static_shared_stats(batch_size,reward_model)
+            self._gather_static_shared_stats(batch_size,reward_model_predict)
 
         # IPS
         all_policy_probs = []
@@ -191,7 +183,7 @@ class OPEManager(object):
 
         for i in range(math.ceil(len(self.evaluation_dataset_as_transitions) / batch_size)):
             batch_states = self.evaluation_dataset_as_transitions['obs'][i * batch_size: (i + 1) * batch_size]
-            q_values, _, sm_values = policy_model.predict(batch_states,with_prob=True)
+            q_values, _, sm_values = policy_model_predict(batch_states,with_prob=True)
             all_policy_probs.append(sm_values)
             all_v_values_reward_model_based.append(np.sum(all_policy_probs[-1] * self.all_reward_model_rewards[i],
                                                           axis=1))
@@ -215,8 +207,7 @@ class OPEManager(object):
                               self.all_rewards, self.all_actions, self.all_old_policy_probs, new_policy_prob,
                               rho_all_dataset)
 
-    def _gather_static_shared_stats(self,  batch_size: int, reward_model) -> None:
-        # todo: what type is the reward_model ?
+    def _gather_static_shared_stats(self,  batch_size: int, reward_model_predict) -> None:
         all_reward_model_rewards = []
         all_old_policy_probs = []
         all_rewards = []
@@ -229,7 +220,7 @@ class OPEManager(object):
             batch_actions = self.evaluation_dataset_as_transitions['actions'][i * batch_size: (i + 1) * batch_size]
             batch_infos = self.evaluation_dataset_as_transitions['infos'][i * batch_size: (i + 1) * batch_size]
             batch_action_probs = np.concatenate([i['all_action_probabilities'] for i in batch_infos])
-            all_reward_model_rewards.append(reward_model.predict(batch_states))
+            all_reward_model_rewards.append(reward_model_predict(batch_states))
             all_rewards.append(batch_rewards)
             all_actions.append(batch_actions)
             all_old_policy_probs.append(batch_action_probs[range(len(batch_actions)),batch_actions])
@@ -242,23 +233,24 @@ class OPEManager(object):
         # mark that static shared data was collected and ready to be used
         self.is_gathered_static_shared_data = True
 
-    def evaluate(self, batch_size: int,discount_factor: float, reward_model, policy_model) -> OpeEstimation:
+    def evaluate(self, batch_size: int,discount_factor: float, reward_model_pred_func, policy_model_pred_func) -> OpeEstimation:
         """
         Run all the OPEs and get estimations of the current policy performance based on the evaluation dataset.
 
         :param batch_size: Batch size to use for the estimators.
         :param discount_factor: The standard RL discount factor.
-        :param reward_model: A reward model to be used by DR
-        :param policy_model: The Q network whose its policy we evaluate.
+        :param reward_model_pred_func: A reward model predict function to be used by DR.
+               usage: rewards=reward_model_pred_func(obs,deterministic)
+        :param policy_model_pred_func: The Q network whose its policy we evaluate.
 
 
         :return: An OpeEstimation tuple which groups together all the OPE estimations
         """
-        ope_shared_stats = self._prepare_ope_shared_stats(batch_size, reward_model, policy_model)
+        ope_shared_stats = self._prepare_ope_shared_stats(batch_size, reward_model_pred_func, policy_model_pred_func)
 
         ips, dm, dr = self.doubly_robust.evaluate(ope_shared_stats)
         seq_dr = self.sequential_doubly_robust.evaluate(self.evaluation_dataset_as_episodes, discount_factor)
-        wis = self.weighted_importance_sampling.evaluate(self.evaluation_dataset_as_episodes)
+        wis = self.weighted_importance_sampling.evaluate(self.evaluation_dataset_as_episodes, discount_factor)
 
         return OpeEstimation(ips, dm, dr, seq_dr, wis)
 
@@ -268,7 +260,7 @@ class OffPolicyEvalCallback(EventCallback):
     """
     Callback for evaluating an agent on static buffer
 
-    :param eval_env: (Union[gym.Env, VecEnv]) The environment used for initialization
+    :param ope_manager: (OPEManager) The off policy evaluation manager that has the evaluation data
     :param callback_on_new_best: (Optional[BaseCallback]) Callback to trigger
         when there is a new best model according to the `mean_reward`
     :param n_eval_episodes: (int) The number of episodes to test the agent
@@ -279,48 +271,33 @@ class OffPolicyEvalCallback(EventCallback):
         according to performance on the eval env will be saved.
     :param deterministic: (bool) Whether the evaluation should
         use a stochastic or deterministic actions.
-    :param render: (bool) Whether to render or not the environment during evaluation
     :param verbose: (int)
     """
-    def __init__(self, eval_env: Union[gym.Env, VecEnv],        # todo: replace this with ope manager that was initialized with evaluation dataset
+    def __init__(self, ope_manager: OPEManager,
                  callback_on_new_best: Optional[BaseCallback] = None,
-                 n_eval_episodes: int = 5,
                  eval_freq: int = 10000,
                  log_path: str = None,
+                 best_model_metric: str = 'wis',
                  best_model_save_path: str = None,
                  deterministic: bool = True,
-                 render: bool = False,
                  verbose: int = 1):
-        super(EvalCallback, self).__init__(callback_on_new_best, verbose=verbose)
-        self.n_eval_episodes = n_eval_episodes
+        super(OffPolicyEvalCallback, self).__init__(callback_on_new_best, verbose=verbose)
+        self.ope_manager = ope_manager
         self.eval_freq = eval_freq
-        self.best_mean_reward = -np.inf
-        self.last_mean_reward = -np.inf
+        self.best_model_metric = best_model_metric
+        self.best_metric_val = -np.inf
+        self.last_ope_estimation = None
         self.deterministic = deterministic
-        self.render = render
-
-        # Convert to VecEnv for consistency
-        if not isinstance(eval_env, VecEnv):
-            eval_env = DummyVecEnv([lambda: eval_env])
-
-        assert eval_env.num_envs == 1, "You must pass only one environment for evaluation"
-
-        self.eval_env = eval_env
         self.best_model_save_path = best_model_save_path
-        # Logs will be written in `evaluations.npz`
+        # Logs will be written in `ope_results.npz`
         if log_path is not None:
-            log_path = os.path.join(log_path, 'evaluations')
+            log_path = os.path.join(log_path, 'ope_results')
         self.log_path = log_path
         self.evaluations_results = []
         self.evaluations_timesteps = []
         self.evaluations_length = []
 
     def _init_callback(self):
-        # Does not work in some corner cases, where the wrapper is not the same
-        if not type(self.training_env) is type(self.eval_env):
-            warnings.warn("Training and eval env are not of the same type"
-                          "{} != {}".format(self.training_env, self.eval_env))
-
         # Create folders if needed
         if self.best_model_save_path is not None:
             os.makedirs(self.best_model_save_path, exist_ok=True)
@@ -328,40 +305,33 @@ class OffPolicyEvalCallback(EventCallback):
             os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
 
     def _on_step(self) -> bool:
-
         if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
-            # Sync training and eval env if there is VecNormalize
-            sync_envs_normalization(self.training_env, self.eval_env)
-
-            episode_rewards, episode_lengths = evaluate_policy(self.model, self.eval_env,
-                                                               n_eval_episodes=self.n_eval_episodes,
-                                                               render=self.render,
-                                                               deterministic=self.deterministic,
-                                                               return_episode_rewards=True)
+            # Handle the case where there is VecNormalize - ommitted.
+            logger.info('starting off policy evaluation')
+            ope_estimation = self.ope_manager.evaluate(self.model.batch_size,self.model.gamma,
+                                                       self.model.predict_ope_rewards,
+                                                       self.model.predict)
 
             if self.log_path is not None:
                 self.evaluations_timesteps.append(self.num_timesteps)
-                self.evaluations_results.append(episode_rewards)
-                self.evaluations_length.append(episode_lengths)
-                np.savez(self.log_path, timesteps=self.evaluations_timesteps,
-                         results=self.evaluations_results, ep_lengths=self.evaluations_length)
+                self.evaluations_results.append(ope_estimation)
+                np.savez(self.log_path, timesteps=self.evaluations_timesteps,**ope_estimation)
 
-            mean_reward, std_reward = np.mean(episode_rewards), np.std(episode_rewards)
-            mean_ep_length, std_ep_length = np.mean(episode_lengths), np.std(episode_lengths)
             # Keep track of the last evaluation, useful for classes that derive from this callback
-            self.last_mean_reward = mean_reward
+            self.last_ope_estimation = ope_estimation
 
             if self.verbose > 0:
-                print("Eval num_timesteps={}, "
-                      "episode_reward={:.2f} +/- {:.2f}".format(self.num_timesteps, mean_reward, std_reward))
-                print("Episode length: {:.2f} +/- {:.2f}".format(mean_ep_length, std_ep_length))
+                print("Off Policy Eval num_timesteps={}, ips={:.2f}, dm={:.2f}, dr={:.2f}, seq_dr={:.2f}, "
+                      "wis={:.2f}".format(self.num_timesteps,ope_estimation.ips, ope_estimation.dm,
+                                          ope_estimation.dr, ope_estimation.seq_dr, ope_estimation.wis))
 
-            if mean_reward > self.best_mean_reward:
+            curr_metric_val = ope_estimation._asdict()[self.best_model_metric]
+            if curr_metric_val > self.best_metric_val:
                 if self.verbose > 0:
-                    print("New best mean reward!")
+                    print("New best {} value!".format(self.best_model_metric))
                 if self.best_model_save_path is not None:
-                    self.model.save(os.path.join(self.best_model_save_path, 'best_model'))
-                self.best_mean_reward = mean_reward
+                    self.model.save(os.path.join(self.best_model_save_path, 'best_model_ope'))
+                self.best_metric_val = curr_metric_val
                 # Trigger callback if needed
                 if self.callback is not None:
                     return self._on_event()

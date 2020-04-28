@@ -30,7 +30,8 @@ import ast
 from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
 from stable_baselines.common.ope import OPEManager,OffPolicyEvalCallback
-from my_zoo.utils.train import load_experience_traj,env_make,generate_experience_traj,online_eval_results_analysis,OnlEvalTBCallback
+from my_zoo.utils.train import load_experience_traj,env_make,generate_experience_traj,online_eval_results_analysis,\
+    OnlEvalTBCallback,UniformRandomModel
 from my_zoo.utils.utils import ALGOS
 from my_zoo.my_envs import L2PEnv
 import shutil
@@ -113,15 +114,7 @@ def create_experience_buffer(experiment_params,output_dir):
             _ = env.action_space.sample()
         except:
             raise NotImplementedError("random model assumes gym environment (uses its 'sample' method)")
-        def model(obs,gymenv=env,with_prob=False):
-            action = gymenv.action_space.sample()
-            if with_prob:
-                assert isinstance(gymenv.action_space,
-                                  gym.spaces.Discrete), "currently supporting action prob in Discrete space only"
-                action_prob = np.array([1./gymenv.action_space.n]*gymenv.action_space.n)
-                return action,action_prob
-            else:
-                return action
+        model = UniformRandomModel(env)
     else:
         if ALGOS[algo] is None:
             raise ValueError('{} requires MPI to be installed'.format(algo))
@@ -309,7 +302,7 @@ def run_experiment(experiment_params):
             # thus the online_eval_freq which is given in steps should be converted to minibatches
             er_buf,ope_buf = split_dataset(er_buf,experiment_params.off_policy_eval_dataset_eval_fraction)     # split the dataset
             # ope_buf should be arranged 'as_episodes'
-            ope_manager = OPEManager(ope_buf)
+            ope_manager = OPEManager(ope_buf,experiment_params.env_params.env_id)
             opecb = OffPolicyEvalCallback(ope_manager,
                                           eval_freq=eval_freq,
                                           log_path=output_dir, best_model_save_path=output_dir)

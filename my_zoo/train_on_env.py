@@ -36,7 +36,8 @@ from my_zoo.utils.utils import ALGOS
 from zoo.utils.hyperparams_opt import hyperparam_optimization
 from stable_baselines.gail import ExpertDataset
 from my_zoo.utils.common import *
-from my_zoo.utils.train import get_create_env,parse_agent_params,generate_experience_traj,load_experience_traj,online_eval_results_analysis,OnlEvalTBCallback
+from my_zoo.utils.train import get_create_env,parse_agent_params,generate_experience_traj,load_experience_traj,\
+    online_eval_results_analysis,OnlEvalTBCallback, UniformRandomModel
 
 
 
@@ -158,9 +159,7 @@ def run_experiment(experiment_params):
         #####################
         # create the agent
         if algo=='random':      # if we simply need a random agent, we're creating a callable object for model
-            def model(obs,gymenv=env):
-                action = gymenv.action_space.sample()
-                return action
+            model = UniformRandomModel(env)
         else:
             if ALGOS[algo] is None:
                 raise ValueError('{} requires MPI to be installed'.format(algo))

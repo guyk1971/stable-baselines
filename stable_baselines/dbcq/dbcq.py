@@ -399,6 +399,15 @@ class DBCQ(OffPolicyRLModel):
         else:
             return actions, None
 
+    def predict_ope_rewards(self,observation, deterministic=True):
+        observation = np.array(observation)
+        observation = observation.reshape((-1,) + self.observation_space.shape)
+        with self.sess.as_default():
+            _, rewards, _ = self.ope_reward_model.step(observation, deterministic=deterministic)
+        rewards = rewards[0]        # do we need it ?
+        return rewards
+
+
     def action_probability(self, observation, state=None, mask=None, actions=None, logp=False):
         observation = np.array(observation)
         vectorized_env = self._is_vectorized_observation(observation, self.observation_space)

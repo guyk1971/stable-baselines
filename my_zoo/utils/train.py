@@ -15,6 +15,7 @@ from stable_baselines.common.noise import AdaptiveParamNoiseSpec, NormalActionNo
 from stable_baselines.common.schedules import get_schedule_fn
 from tqdm import tqdm
 from stable_baselines.common.callbacks import EvalCallback,BaseCallback
+from stable_baselines.common.ope import OffPolicyEvalCallback,OPEManager
 from stable_baselines import logger
 from stable_baselines.common.base_class import BaseRLModel,_UnvecWrapper
 from my_zoo.utils.common import title
@@ -171,6 +172,20 @@ def online_eval_results_analysis(npz_filename):
     return
 
 
+class UniformRandomModel(object):
+    def __init__(self,env):
+        self.env = env
+        assert hasattr(self.env,'action_space') and hasattr(self.env.action_space,'sample'), "env doesnt support sample"
+        assert isinstance(self.env.action_space,gym.spaces.Discrete), "currently supporting only discrete action space"
+    def predict(self,obs,with_prob=False):
+        action = self.env.action_space.sample()
+        if with_prob:
+            act_prob = np.array([1.0 / self.env.action_space.n] * self.env.action_space.n)
+            return action, act_prob
+        else:
+            return action
+
+
 class OnlEvalTBCallback(EvalCallback):
     """
     Custom callback for plotting additional values in tensorboard.
@@ -191,18 +206,53 @@ class OnlEvalTBCallback(EvalCallback):
     def _on_step(self) -> bool:
         # Log additional tensor
         Result = super(OnlEvalTBCallback,self)._on_step()
+        # the following code is to log additional *tensorflow tensor* in tensorboard
+        # if not self.is_tb_set:
+        #     with self.model.graph.as_default():
+        #         tf.summary.scalar('onl_eval_mean_reward', self.last_mean_reward)
+        #         self.model.summary = tf.summary.merge_all()
+        #     self.is_tb_set = True
+        # Log scalar value that is not a tensorflow tensor (here a random variable)
+        value = self.last_mean_reward
+        summary = tf.Summary(value=[tf.Summary.Value(tag='eval/onl_mean_reward', simple_value=value)])
+        self.locals['writer'].add_summary(summary, self.num_timesteps)
+        summary = tf.Summary(value=[tf.Summary.Value(tag='eval/ope_mean_reward', simple_value=value)])
+        self.locals['writer'].add_summary(summary, self.num_timesteps)
+
+        return Result
+
+
+class OffPolicyEvalTBCallback(OffPolicyEvalCallback):
+    """
+    Custom callback for plotting additional values in tensorboard.
+    """
+    def __init__(self, ope_manager: OPEManager,
+                 callback_on_new_best: Optional[BaseCallback] = None,
+                 eval_freq: int = 10000,
+                 log_path: str = None,
+                 best_model_metric: str = 'wis',
+                 best_model_save_path: str = None,
+                 deterministic: bool = True,
+                 verbose: int = 1):
+
+        self.is_tb_set = False
+        super(OffPolicyEvalTBCallback, self).__init__(ope_manager,callback_on_new_best,
+                                                      eval_freq,log_path,best_model_metric,
+                                                      best_model_save_path,deterministic,verbose)
+
+    def _on_step(self) -> bool:
+        # Log additional tensor
+        Result = super(OffPolicyEvalTBCallback,self)._on_step()
         # if not self.is_tb_set:
         #     with self.model.graph.as_default():
         #         tf.summary.scalar('onl_eval_mean_reward', self.last_mean_reward)
         #         self.model.summary = tf.summary.merge_all()
         #     self.is_tb_set = True
         # Log scalar value (here a random variable)
-        value = self.last_mean_reward
-        summary = tf.Summary(value=[tf.Summary.Value(tag='onl_eval_mean_reward', simple_value=value)])
+        value = self.last_ope_estimation.wis
+        summary = tf.Summary(value=[tf.Summary.Value(tag='ope_eval/wis', simple_value=value)])
         self.locals['writer'].add_summary(summary, self.num_timesteps)
         return Result
-
-
 
 
 
@@ -304,11 +354,11 @@ def generate_experience_traj(model, save_path=None, env=None, n_timesteps_train=
         else:   # random agent that samples uniformly
             if with_prob:
                 assert isinstance(env.action_space,gym.spaces.Discrete), "currently supporting action prob in Discrete space only"
-                action,act_prob = model(obs,with_prob=True)
+                action,act_prob = model.predict(obs,with_prob=True)
                 # info.update({'all_action_probabilities': str(act_prob)})
                 info.update({'all_action_probabilities': act_prob})
             else:
-                action = model(obs)
+                action = model.predict(obs)
 
         new_obs, reward, done, _ = env.step(action)
 
