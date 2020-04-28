@@ -216,8 +216,6 @@ class OnlEvalTBCallback(EvalCallback):
         value = self.last_mean_reward
         summary = tf.Summary(value=[tf.Summary.Value(tag='eval/onl_mean_reward', simple_value=value)])
         self.locals['writer'].add_summary(summary, self.num_timesteps)
-        summary = tf.Summary(value=[tf.Summary.Value(tag='eval/ope_mean_reward', simple_value=value)])
-        self.locals['writer'].add_summary(summary, self.num_timesteps)
 
         return Result
 
@@ -249,8 +247,12 @@ class OffPolicyEvalTBCallback(OffPolicyEvalCallback):
         #         self.model.summary = tf.summary.merge_all()
         #     self.is_tb_set = True
         # Log scalar value (here a random variable)
-        value = self.last_ope_estimation.wis
-        summary = tf.Summary(value=[tf.Summary.Value(tag='ope_eval/wis', simple_value=value)])
+        summary = tf.Summary(value=[tf.Summary.Value(tag='eval/ope_wis', simple_value=self.last_ope_estimation.wis),
+                                    tf.Summary.Value(tag='eval/ope_seq_dr', simple_value=self.last_ope_estimation.seq_dr),
+                                    tf.Summary.Value(tag='eval/dr', simple_value=self.last_ope_estimation.dr),
+                                    tf.Summary.Value(tag='eval/ips', simple_value=self.last_ope_estimation.ips),
+                                    tf.Summary.Value(tag='eval/dm', simple_value=self.last_ope_estimation.dm),])
+
         self.locals['writer'].add_summary(summary, self.num_timesteps)
         return Result
 
