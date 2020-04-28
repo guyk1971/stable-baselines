@@ -207,26 +207,27 @@ class DBCQ(OffPolicyRLModel):
         with self.graph.as_default():
             # build the graph for generative model
             with tf.variable_scope('gen_act_pretrain'):
-                obs_ph, actions_ph, actions_logits_ph = self._get_gen_act_placeholders()
-                one_hot_actions = tf.one_hot(actions_ph, self.action_space.n)
-                loss = tf.nn.softmax_cross_entropy_with_logits_v2(
-                    logits=actions_logits_ph,
-                    labels=tf.stop_gradient(one_hot_actions)
+                gen_obs_ph, gen_actions_ph, gen_actions_logits_ph = self._get_gen_act_placeholders()
+                gen_one_hot_actions = tf.one_hot(gen_actions_ph, self.action_space.n)
+                gen_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+                    logits=gen_actions_logits_ph,
+                    labels=tf.stop_gradient(gen_one_hot_actions)
                 )
-                loss = tf.reduce_mean(loss)
+                gen_loss = tf.reduce_mean(gen_loss)
                 optimizer = tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-8)
-                optim_op = optimizer.minimize(loss, var_list=self.gen_act_trainables)
-                tf.summary.scalar('gen_pretrain_loss',loss)
+                gen_optim_op = optimizer.minimize(gen_loss, var_list=self.gen_act_trainables)
+                tf.summary.scalar('gen_pretrain_loss',gen_loss)
             # build the graph for reward model (for off policy evaluation)
             with tf.variable_scope('ope_reward_pretrain'):
-                obs_ph, actions_ph, rewards_ph, model_rewards_ph = self._get_ope_reward_placeholders()
-                one_hot_actions = tf.one_hot(actions_ph, self.action_space.n)
-                target_rewards = tf.stop_gradient(tf.where(one_hot_actions, rewards_ph, model_rewards_ph))
-                rew_loss = tf_util.mse(model_rewards_ph,target_rewards)
+                rew_obs_ph, rew_actions_ph, rewards_ph, model_rewards_ph = self._get_ope_reward_placeholders()
+                one_hot_actions = tf.one_hot(rew_actions_ph, self.action_space.n)
+                target_rewards = tf.where(one_hot_actions>0,tf.tile(rewards_ph[:,tf.newaxis],[1,self.action_space.n]),
+                                          model_rewards_ph)
+                rew_loss = tf_util.mse(model_rewards_ph,tf.stop_gradient(target_rewards))
                 rew_optimizer = tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-8)
                 rew_optim_op = rew_optimizer.minimize(rew_loss, var_list=self.ope_reward_trainables)
-                tf.summary.scalar('gen_pretrain_loss', loss)
-            pretrain_summary=tf.summary.merge_all()
+                tf.summary.scalar('rew_pretrain_loss', rew_loss)
+            # pretrain_summary=tf.summary.merge_all()
             self.sess.run(tf.global_variables_initializer())
 
         if self.verbose > 0:
@@ -238,14 +239,15 @@ class DBCQ(OffPolicyRLModel):
             # Full pass on the training set
             for _ in range(len(dataset.train_loader)):
                 expert_obs, expert_actions,expert_rewards,_,_,_ = dataset.get_next_batch('train')
-                # expert_actions = 3* np.ones_like(expert_actions)   # GK for debug
-                feed_dict = {
-                    obs_ph: expert_obs,
-                    actions_ph: expert_actions,
-                    rewards_ph: expert_rewards
-                }
-                gen_batch_loss, _, rew_batch_loss,_,summary = self.sess.run([loss, optim_op,rew_loss,rew_optim_op],
-                                                                              feed_dict)
+                feed_dict = {gen_obs_ph: expert_obs,
+                             gen_actions_ph: expert_actions,
+                             rew_obs_ph: expert_obs,
+                             rew_actions_ph: expert_actions,
+                             rewards_ph: expert_rewards}
+
+                gen_batch_loss, _, rew_batch_loss,_ = self.sess.run([gen_loss, gen_optim_op,rew_loss,rew_optim_op],
+                                                                    feed_dict)
+
                 gen_epoch_loss += gen_batch_loss
                 rew_epoch_loss += rew_batch_loss
 
@@ -258,12 +260,13 @@ class DBCQ(OffPolicyRLModel):
                 # Full pass on the validation set
                 for _ in range(len(dataset.val_loader)):
                     expert_obs, expert_actions,expert_rewards,_,_,_ = dataset.get_next_batch('val')
-                    feed_dict = {
-                        obs_ph: expert_obs,
-                        actions_ph: expert_actions,
-                        rewards_ph: expert_rewards
-                    }
-                    gen_batch_loss, rew_batch_loss= self.sess.run([loss,rew_loss], feed_dict)
+                    feed_dict = {gen_obs_ph: expert_obs,
+                                 gen_actions_ph: expert_actions,
+                                 rew_obs_ph: expert_obs,
+                                 rew_actions_ph: expert_actions,
+                                 rewards_ph: expert_rewards}
+
+                    gen_batch_loss, rew_batch_loss= self.sess.run([gen_loss,rew_loss], feed_dict)
                     gen_val_loss += gen_batch_loss
                     rew_val_loss += rew_batch_loss
 
@@ -308,7 +311,7 @@ class DBCQ(OffPolicyRLModel):
                 lr_now = self.learning_rate(frac)         # get the learning rate for the current epoch
                 tot_epoch_loss={'main':0,'gen':0}
                 for _ in range(n_minibatches):
-                    obses_t, actions, rewards, obses_tp1, dones = self.dataset.get_next_batch('train')
+                    obses_t, actions, rewards, obses_tp1, dones,_ = self.dataset.get_next_batch('train')
                     weights, batch_idxes = np.ones_like(rewards), None
                     # if lr_scheduling set the learning rate here and send it in the _train_step
                     if writer is not None:
