@@ -397,7 +397,7 @@ class DBCQ(OffPolicyRLModel):
             q_values = q_values[0]
 
         if with_prob:
-            actions_prob = softmax(q_values)
+            actions_prob = softmax(q_values,axis=-1)
             return actions,None,actions_prob
         else:
             return actions, None
@@ -407,8 +407,17 @@ class DBCQ(OffPolicyRLModel):
         observation = observation.reshape((-1,) + self.observation_space.shape)
         with self.sess.as_default():
             _, rewards, _ = self.ope_reward_model.step(observation, deterministic=deterministic)
-        rewards = rewards[0]        # do we need it ?
         return rewards
+
+    def predict_ope_qvalues(self, observation, deterministic=True):
+        observation = np.array(observation)
+        observation = observation.reshape((-1,) + self.observation_space.shape)
+        with self.sess.as_default():
+            _, q_values, _ = self.step_model.step(observation, deterministic=deterministic)
+
+        actions_prob = softmax(q_values,axis=-1)
+        return q_values,actions_prob
+
 
 
     def action_probability(self, observation, state=None, mask=None, actions=None, logp=False):
