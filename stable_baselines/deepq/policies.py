@@ -137,13 +137,14 @@ class FeedForwardPolicy(DQNPolicy):
     def step(self, obs, state=None, mask=None, deterministic=True):
         '''
         step method is used to derive actions to do step in the environment *in evaluation mode*
-        Note that as opposed to the act_f function created in the agent, is for training.
-        During training we might want to support epsilon greedy with eps decay. this is what the act_f does.
+        Note the difference from act_f function created in the agent, which is for collecting samples during training.
+        The difference is in the way we act randomly:
+        During training we might want to support epsilon greedy with eps decay. this is what the act_f does:
         with probability eps it chooses uniformly random , with probability 1-eps it chooses argmax (q_values)
-
+        which is different than the stochastic sampling mode of this step function:
         This function is deterministic by default (taking argmax(q_values)) but also supports stochastic mode
         in which it takes np.random.choice(n_actions, p=actions_proba)
-        where actions_proba is softmax(q_values)
+        where actions_proba is softmax(q_values) and q_values are the output of the trained network.
 
         :param obs:
         :param state:
