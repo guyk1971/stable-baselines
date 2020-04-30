@@ -306,13 +306,13 @@ class OffPolicyEvalCallback(EventCallback):
         self.last_ope_estimation = None
         self.deterministic = deterministic
         self.best_model_save_path = best_model_save_path
-        # Logs will be written in `ope_results.npz`
+        # Logs will be written in `evaluations_ope.npz`
         if log_path is not None:
-            log_path = os.path.join(log_path, 'ope_results')
+            log_path = os.path.join(log_path, 'evaluations_ope')
         self.log_path = log_path
-        self.evaluations_results = []
+        self.evaluations_results = {k:[] for k in OpeEstimation._fields}
         self.evaluations_timesteps = []
-        self.evaluations_length = []
+
 
     def _init_callback(self):
         # Create folders if needed
@@ -331,8 +331,8 @@ class OffPolicyEvalCallback(EventCallback):
 
             if self.log_path is not None:
                 self.evaluations_timesteps.append(self.num_timesteps)
-                self.evaluations_results.append(ope_estimation)
-                np.savez(self.log_path, timesteps=self.evaluations_timesteps,**ope_estimation._asdict())
+                _ = [self.evaluations_results[k].append(v) for k,v in ope_estimation._asdict().items()]
+                np.savez(self.log_path, timesteps=self.evaluations_timesteps,**self.evaluations_results)
 
             # Keep track of the last evaluation, useful for classes that derive from this callback
             self.last_ope_estimation = ope_estimation

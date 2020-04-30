@@ -150,66 +150,6 @@ def env_make(n_envs,env_params,algo,seed):
         env = create_env(n_envs)
     return env
 
-def online_eval_results_analysis(npz_filename):
-    if not os.path.exists(npz_filename):
-        logger.warn('evaluation results file not found')
-        return
-
-    eval_np = np.load(npz_filename)
-    eval_dict = {k:v for k,v in eval_np.items()}
-    # replace 'results' with 'mean_rew' and 'std_rew':
-    eval_dict['reward_mean'] = np.squeeze(eval_dict['results']).mean(axis=1)
-    eval_dict['reward_std'] = np.squeeze(eval_dict['results']).std(axis=1)
-    del eval_dict['results']
-    eval_dict['ep_lengths_mean'] = eval_dict['ep_lengths'].mean(axis=1)
-    eval_dict['ep_lengths_std']= eval_dict['ep_lengths'].std(axis=1)
-    del eval_dict['ep_lengths']
-    eval_df = pd.DataFrame(eval_dict)
-    eval_df.set_index('timesteps',inplace=True)
-    # save csv filename
-    df_filename = os.path.splitext(npz_filename)[0]+'.csv'
-    eval_df.to_csv(df_filename)
-    return eval_df
-
-def ope_results_analysis(npz_filename):
-    if not os.path.exists(npz_filename):
-        logger.warn('off policy evaluation results file not found')
-        return
-    # todo: complete this function.
-    eval_np = np.load(npz_filename)
-    eval_dict = {k:v for k,v in eval_np.items()}
-    # replace 'results' with 'mean_rew' and 'std_rew':
-    eval_dict['reward_mean'] = np.squeeze(eval_dict['results']).mean(axis=1)
-    eval_dict['reward_std'] = np.squeeze(eval_dict['results']).std(axis=1)
-    del eval_dict['results']
-    eval_dict['ep_lengths_mean'] = eval_dict['ep_lengths'].mean(axis=1)
-    eval_dict['ep_lengths_std']= eval_dict['ep_lengths'].std(axis=1)
-    del eval_dict['ep_lengths']
-    eval_df = pd.DataFrame(eval_dict)
-    eval_df.set_index('timesteps',inplace=True)
-    # save csv filename
-    df_filename = os.path.splitext(npz_filename)[0]+'.csv'
-    eval_df.to_csv(df_filename)
-    return eval_df
-
-def eval_results_analysis(output_dir):
-    eval_results_files = {'onl_eval_results': os.path.join(output_dir, 'evaluations.npz'),
-                          'ope_results': os.path.join(output_dir, 'ope_results.npz')}
-    eval_df = pd.DataFrame()
-    if os.path.exists(eval_results_files['onl_eval_results']):
-        onl_df=online_eval_results_analysis(eval_results_files['onl_eval_results'])
-        eval_df=pd.concat([eval_df,onl_df],axis=1)
-    if os.path.exists(eval_results_files['ope_results']):
-        ope_df=ope_results_analysis(eval_results_files['ope_results'])
-        eval_df = pd.concat([eval_df, ope_df], axis=1)
-    # save csv filename
-    df_filename = os.path.join(output_dir,'eval_results.csv')
-    eval_df.to_csv(df_filename)
-    return
-
-
-
-
 class UniformRandomModel(object):
     def __init__(self,env):
         self.env = env
@@ -223,7 +163,10 @@ class UniformRandomModel(object):
         else:
             return action
 
-
+##################################
+# Evaluation callbacks
+##################################
+#online evaluation - evaluating on live environment
 class OnlEvalTBCallback(EvalCallback):
     """
     Custom callback for plotting additional values in tensorboard.
@@ -257,7 +200,7 @@ class OnlEvalTBCallback(EvalCallback):
 
         return Result
 
-
+# Off policy evaluation - evaluating on buffer as part of batch_rl
 class OffPolicyEvalTBCallback(OffPolicyEvalCallback):
     """
     Custom callback for plotting additional values in tensorboard.
@@ -294,9 +237,62 @@ class OffPolicyEvalTBCallback(OffPolicyEvalCallback):
         self.locals['writer'].add_summary(summary, self.num_timesteps)
         return Result
 
+def online_eval_results_analysis(npz_filename):
+    if not os.path.exists(npz_filename):
+        logger.warn('evaluation results file not found')
+        return
 
+    eval_np = np.load(npz_filename)
+    eval_dict = {k:v for k,v in eval_np.items()}
+    # results include all results for all epochs. the shape is [T,n_epochs,1]
+    # we want to generate statistics for the epochs of each time step:
+    # replace 'results' with 'mean_rew' and 'std_rew':
+    eval_dict['reward_mean'] = np.squeeze(eval_dict['results']).mean(axis=1)
+    eval_dict['reward_std'] = np.squeeze(eval_dict['results']).std(axis=1)
+    del eval_dict['results']
+    # same goes for the ep_lengths field:
+    eval_dict['ep_lengths_mean'] = eval_dict['ep_lengths'].mean(axis=1)
+    eval_dict['ep_lengths_std']= eval_dict['ep_lengths'].std(axis=1)
+    del eval_dict['ep_lengths']
+    eval_df = pd.DataFrame(eval_dict)
+    eval_df.set_index('timesteps',inplace=True)
+    # save csv filename
+    # df_filename = os.path.splitext(npz_filename)[0]+'.csv'
+    # eval_df.to_csv(df_filename)
+    return eval_df
 
-# batch_rl utils
+def ope_results_analysis(npz_filename):
+    if not os.path.exists(npz_filename):
+        logger.warn('off policy evaluation results file not found')
+        return
+    # todo: complete this function.
+    eval_np = np.load(npz_filename)
+    eval_dict = {k:v for k,v in eval_np.items()}
+    eval_df = pd.DataFrame(eval_dict)
+    eval_df.set_index('timesteps',inplace=True)
+    # save csv filename
+    # df_filename = os.path.splitext(npz_filename)[0]+'.csv'
+    # eval_df.to_csv(df_filename)
+    return eval_df
+
+def eval_results_analysis(output_dir):
+    eval_results_files = {'onl_eval_results': os.path.join(output_dir, 'evaluations.npz'),
+                          'ope_results': os.path.join(output_dir, 'evaluations_ope.npz')}
+    eval_df = pd.DataFrame()
+    if os.path.exists(eval_results_files['onl_eval_results']):
+        onl_df=online_eval_results_analysis(eval_results_files['onl_eval_results'])
+        eval_df=pd.concat([eval_df,onl_df],axis=1)
+    if os.path.exists(eval_results_files['ope_results']):
+        ope_df=ope_results_analysis(eval_results_files['ope_results'])
+        eval_df = pd.concat([eval_df, ope_df], axis=1)
+    # save csv filename
+    df_filename = os.path.join(output_dir,'eval_results.csv')
+    eval_df.to_csv(df_filename)
+    return
+
+##################################
+# batch_rl experience buf creation tools
+##################################
 def load_experience_traj(csv_path):
     # check if there's a numpy_dict version already saved (to save csv load time)
     npz_filename = os.path.splitext(csv_path)[0]+'.npz'
