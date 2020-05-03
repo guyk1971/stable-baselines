@@ -31,7 +31,7 @@ from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
 from stable_baselines.common.ope import OPEManager,OffPolicyEvalCallback
 from my_zoo.utils.train import load_experience_traj,env_make,generate_experience_traj,eval_results_analysis,\
-    OnlEvalTBCallback,UniformRandomModel
+    OnlEvalTBCallback,UniformRandomModel,OffPolicyEvalTBCallback
 from my_zoo.utils.utils import ALGOS
 from my_zoo.my_envs import L2PEnv
 import shutil
@@ -303,9 +303,9 @@ def run_experiment(experiment_params):
             er_buf,ope_buf = split_dataset(er_buf,experiment_params.off_policy_eval_dataset_eval_fraction)     # split the dataset
             # ope_buf should be arranged 'as_episodes'
             ope_manager = OPEManager(ope_buf,experiment_params.env_params.env_id)
-            opecb = OffPolicyEvalCallback(ope_manager,
-                                          eval_freq=eval_freq,
-                                          log_path=output_dir, best_model_save_path=output_dir)
+            opecb = OffPolicyEvalTBCallback(ope_manager,
+                                            eval_freq=eval_freq,
+                                            log_path=output_dir, best_model_save_path=output_dir)
 
         model.learn(int(experiment_params.n_timesteps),callback=[evalcb,opecb] ,tb_log_name='main_agent_train', **kwargs)
         # save evaluation report if needed

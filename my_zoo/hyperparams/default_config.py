@@ -424,12 +424,10 @@ class DBCQAgentParams(AgentParams):
                                                 # considered as candidates
                                                 # if gen_act_policy is KNN - the max distance from nearest neighbor
                                                 # s.t. actions that are farther will be thrown
-        self.ope_freq = 1                       # num epochs between evaluations
-        self.ope_n_episodes = 100
         # other default params
         self.gamma = 0.99
         self.batch_size = 32
-        self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
+        self.buffer_train_fraction = 1.0        # 100% will be used for training the policy and the reward model for DM
                                                 # the rest (20%) will be used for Off policy evaluation
         # parameters of the generative model for actions
         self.gen_act_policy = None               # 'KNN' for K nearest neighbors, 'NN' for Neural Net

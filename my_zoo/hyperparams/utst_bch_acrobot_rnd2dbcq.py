@@ -11,7 +11,7 @@ env_params.env_id = 'acrobot'
 ##########################################################
 # Experience Buffer or Expert generator
 ##########################################################
-experience_dataset = '/home/gkoren2/share/Data/MLA/stbl/results/utst_onl_acrobot_rnd-21-04-2020_07-55-20/1/er_acrobot_random_100000.csv'
+experience_dataset = '/home/gkoren2/share/Data/MLA/stbl/results/acrobot_rnd_with_prob/1/er_acrobot_random_100000.csv'
 # load the expert model from file, without training:
 expert_model_file = None       # agent to load to generate experience
 
@@ -26,9 +26,7 @@ agent_params.verbose = 1
 agent_params.learning_rate = 1e-4
 agent_params.policy_kwargs = {'layers': [64]}
 agent_params.target_network_update_freq = 1         # every 1 epoch
-agent_params.ope_freq = 10                          # off policy evaluate and maybe save every # epochs
 agent_params.batch_size = 128
-agent_params.buffer_train_fraction = 1.0         # currently online evaluation. use all buffer for training
 agent_params.gen_act_params['lr'] = 1e-4
 agent_params.gen_act_params['batch_size'] = 128
 
@@ -50,9 +48,10 @@ experiment_params.expert_model_file = expert_model_file
 experiment_params.trained_agent_model_file = trained_agent_model_file
 experiment_params.agent_params = agent_params
 experiment_params.n_timesteps = int(1e7)
+experiment_params.evaluation_freq = int(experiment_params.n_timesteps/20)  # evaluate on eval env every this number of timesteps
+experiment_params.online_eval_n_episodes = 30       # number of episodes to evaluate on online environment
+experiment_params.off_policy_eval_dataset_eval_fraction = 0.3   # use 30% of the experience for OPE
 
-experiment_params.online_eval_freq = int(experiment_params.n_timesteps/100)  # evaluate on eval env every this number of timesteps
-experiment_params.online_eval_n_episodes = 30
 
 # post training the main agent - if we want to record experience with the new expert:
 experiment_params.expert_steps_to_record = 0      # number of steps to rollout into the buffer

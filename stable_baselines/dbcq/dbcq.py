@@ -52,9 +52,9 @@ class DBCQ(OffPolicyRLModel):
         If None, the number of cpu of the current machine will be used.
     """
     def __init__(self, policy, env, replay_buffer=None, gen_act_policy=None ,gamma=0.99, learning_rate=5e-4,
-                 ope_freq=0, batch_size=32, target_network_update_freq=500,buffer_train_fraction=0.8,
+                 ope_freq=0, batch_size=32, target_network_update_freq=500,buffer_train_fraction=1.0,
                  gen_act_params = None,gen_train_with_main=False,param_noise=False, act_distance_thresh=0.3,
-                 ope_n_episodes=100, n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
+                 n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
                  _init_setup_model=True, policy_kwargs=None, full_tensorboard_log=False, seed=None):
 
         super(DBCQ, self).__init__(policy=policy, env=env, replay_buffer=replay_buffer, verbose=verbose,
@@ -62,13 +62,13 @@ class DBCQ(OffPolicyRLModel):
                                    seed=seed, n_cpu_tf_sess=n_cpu_tf_sess)
 
         self.param_noise = param_noise
-        self.ope_freq = ope_freq            # >0  for built in validation (i.e not through callback)
-        self.ope_n_episodes = ope_n_episodes          # number of episodes to evaluate each time we evaluate
         self.batch_size = batch_size
         self.target_network_update_freq = target_network_update_freq
         self.learning_rate = learning_rate
         self.gamma = gamma
-        self.buffer_train_fraction = buffer_train_fraction
+        self.buffer_train_fraction = buffer_train_fraction      # ope - how much of the buffer will be used to train
+                                                                # the reward model vs. to evaluate the policy
+                                                                # this is obsolete
         self.gen_act_params = gen_act_params
         self.act_distance_th = act_distance_thresh
         self.gen_act_policy = gen_act_policy
@@ -231,7 +231,7 @@ class DBCQ(OffPolicyRLModel):
             self.sess.run(tf.global_variables_initializer())
 
         if self.verbose > 0:
-            logger.info("Training generative model with Behavior Cloning...")
+            logger.info("Training reward model with regression loss and generative model with Behavior Cloning ...")
 
         for epoch_idx in range(int(n_epochs)):
             gen_epoch_loss = 0.0
@@ -295,9 +295,9 @@ class DBCQ(OffPolicyRLModel):
         with SetVerbosity(self.verbose), TensorboardWriter(self.graph, self.tensorboard_log, tb_log_name, new_tb_log) \
                 as writer:
             self._setup_learn()
-            logger.info('training the generative model')
+            logger.info('training the reward model and generative model')
             self._train_gen_act_model(val_interval=1)
-            logger.info('finished training the generative model')
+            logger.info('finished training the reward model and generative model')
             iter_cnt=0        # iterations counter
             ts=0
             epoch = 0   # epochs counter
@@ -351,26 +351,6 @@ class DBCQ(OffPolicyRLModel):
                     # Update target network periodically.
                     self.update_target(sess=self.sess)
                     last_updadte_target_ts = ts
-                # the following code should be enabled for Off Policy Evaluation when this will be implemented
-                # online evaluation is done via callback
-                if self.ope_freq>0 and (epoch % self.ope_freq) == 0:
-                    # logger.info("evaluating on {0} episodes from env".format(self.ope_n_episodes))
-                    # if self.env is not None:
-                    #     mean_reward,std_reward = online_policy_eval(self,self.env,n_eval_episodes=self.ope_n_episodes)
-                    #     if writer is not None:
-                    #         with tf.variable_scope('evaluation',reuse=False):
-                    #             tbsum=tf.Summary()
-                    #             tbsum.value.add(tag='mean_{0}_episode_reward'.format(self.ope_n_episodes),
-                    #                             simple_value=mean_reward)
-                    #             tbsum.value.add(tag='std_{0}_episode_reward'.format(self.ope_n_episodes),
-                    #                             simple_value=std_reward)
-                    #             writer.add_summary(tbsum,self.num_timesteps)
-                    # else:
-                    #     raise RuntimeError("Off Policy Evaluation is not supported yet")
-                    # based on ope results we can decide whether to save the current model. currently always saving
-                    save_path = self.tensorboard_log+'/model_params_{0}'.format(epoch)
-                    logger.info('save checkpoint to ' + save_path)
-                    self.save(save_path)
 
                 if self.verbose >= 1 and log_interval is not None:
                     logger.record_tabular("epoch", epoch)
@@ -378,8 +358,6 @@ class DBCQ(OffPolicyRLModel):
                     logger.record_tabular("lr ",lr_now)
                     if avg_gen_loss is not None:
                         logger.record_tabular("gen_loss",avg_gen_loss)
-                    if mean_reward is not None:
-                        logger.record_tabular('mean {0} episode reward'.format(self.ope_n_episodes), mean_reward)
                     logger.dump_tabular()
         callback.on_training_end()
         return self
@@ -453,8 +431,6 @@ class DBCQ(OffPolicyRLModel):
         data = {
             "algorithm":'dbcq',
             "param_noise": self.param_noise,
-            "ope_freq": self.ope_freq,
-            "ope_n_episodes": self.ope_n_episodes,
             "batch_size": self.batch_size,
             "target_network_update_freq": self.target_network_update_freq,
             "learning_rate": self.learning_rate,

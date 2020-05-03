@@ -182,8 +182,8 @@ class OnlEvalTBCallback(EvalCallback):
                  verbose: int = 1):
         self.is_tb_set = False
         super(OnlEvalTBCallback, self).__init__(eval_env,callback_on_new_best,n_eval_episodes,eval_freq,log_path,
-                                                best_model_save_path,deterministic,render,verbose)
-
+                                                best_model_save_path,deterministic,render,verbose=0)
+        self.logger_verbose = verbose
     def _on_step(self) -> bool:
         # Log additional tensor
         Result = super(OnlEvalTBCallback,self)._on_step()
@@ -194,9 +194,13 @@ class OnlEvalTBCallback(EvalCallback):
         #         self.model.summary = tf.summary.merge_all()
         #     self.is_tb_set = True
         # Log scalar value that is not a tensorflow tensor (here a random variable)
-        value = self.last_mean_reward
-        summary = tf.Summary(value=[tf.Summary.Value(tag='eval/onl_mean_reward', simple_value=value)])
-        self.locals['writer'].add_summary(summary, self.num_timesteps)
+        if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
+            if self.logger_verbose > 0:
+                logger.info("Eval num_timesteps={}, "
+                      "episode_reward={:.2f}".format(self.num_timesteps, self.last_mean_reward))
+            value = self.last_mean_reward
+            summary = tf.Summary(value=[tf.Summary.Value(tag='eval/onl_mean_reward', simple_value=value)])
+            self.locals['writer'].add_summary(summary, self.num_timesteps)
 
         return Result
 
@@ -217,7 +221,8 @@ class OffPolicyEvalTBCallback(OffPolicyEvalCallback):
         self.is_tb_set = False
         super(OffPolicyEvalTBCallback, self).__init__(ope_manager,callback_on_new_best,
                                                       eval_freq,log_path,best_model_metric,
-                                                      best_model_save_path,deterministic,verbose)
+                                                      best_model_save_path,deterministic,verbose=0)
+        self.logger_verbose = verbose
 
     def _on_step(self) -> bool:
         # Log additional tensor
@@ -228,13 +233,20 @@ class OffPolicyEvalTBCallback(OffPolicyEvalCallback):
         #         self.model.summary = tf.summary.merge_all()
         #     self.is_tb_set = True
         # Log scalar value (here a random variable)
-        summary = tf.Summary(value=[tf.Summary.Value(tag='eval/ope_wis', simple_value=self.last_ope_estimation.wis),
-                                    tf.Summary.Value(tag='eval/ope_seq_dr', simple_value=self.last_ope_estimation.seq_dr),
-                                    tf.Summary.Value(tag='eval/dr', simple_value=self.last_ope_estimation.dr),
-                                    tf.Summary.Value(tag='eval/ips', simple_value=self.last_ope_estimation.ips),
-                                    tf.Summary.Value(tag='eval/dm', simple_value=self.last_ope_estimation.dm),])
+        if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
+            if self.logger_verbose > 0:
+                logger.info("Off Policy Eval num_timesteps={}, ips={:.2f}, dm={:.2f}, dr={:.2f}, seq_dr={:.2f}, "
+                      "wis={:.2f}".format(self.num_timesteps,self.last_ope_estimation.ips, self.last_ope_estimation.dm,
+                                          self.last_ope_estimation.dr, self.last_ope_estimation.seq_dr,
+                                          self.last_ope_estimation.wis))
 
-        self.locals['writer'].add_summary(summary, self.num_timesteps)
+            summary = tf.Summary(value=[tf.Summary.Value(tag='eval/ope_wis', simple_value=self.last_ope_estimation.wis),
+                                        tf.Summary.Value(tag='eval/ope_seq_dr', simple_value=self.last_ope_estimation.seq_dr),
+                                        tf.Summary.Value(tag='eval/dr', simple_value=self.last_ope_estimation.dr),
+                                        tf.Summary.Value(tag='eval/ips', simple_value=self.last_ope_estimation.ips),
+                                        tf.Summary.Value(tag='eval/dm', simple_value=self.last_ope_estimation.dm),])
+
+            self.locals['writer'].add_summary(summary, self.num_timesteps)
         return Result
 
 def online_eval_results_analysis(npz_filename):
