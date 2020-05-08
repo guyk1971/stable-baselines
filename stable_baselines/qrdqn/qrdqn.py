@@ -12,8 +12,8 @@ from stable_baselines.common.schedules import LinearSchedule
 from stable_baselines.common.buffers import ReplayBuffer, PrioritizedReplayBuffer
 from stable_baselines.common.dataset import ExperienceDataset       # batch_rl mode
 from stable_baselines.qrdqn.build_graph import build_train
-from stable_baselines.common.evaluation import evaluate_policy as online_policy_eval  # batch_rl mode
-from stable_baselines.qrdqn.policies import QRDQNPolicy,MlpPolicy, CnnPolicy, LnCnnPolicy,LnMlpPolicy
+from stable_baselines.qrdqn.policies import QRDQNPolicy
+from stable_baselines.deepq.policies import MlpPolicy       # for the reward model
 from tqdm import tqdm
 
 
@@ -165,7 +165,7 @@ class QRDQN(OffPolicyRLModel):
 
             reward_model = None
             if self.batch_rl_mode:
-                reward_model = partial(self.policy, **self.policy_kwargs)
+                reward_model = partial(MlpPolicy, dueling=False, **self.policy_kwargs)
 
 
             # If the policy is wrap in functool.partial (e.g. to disable dueling)
@@ -200,13 +200,14 @@ class QRDQN(OffPolicyRLModel):
                     grad_norm_clipping=10,
                     param_noise=self.param_noise,
                     sess=self.sess,
+                    reward_model=reward_model,
                     full_tensorboard_log=self.full_tensorboard_log,
                     double_q=self.double_q
                 )
                 self.proba_step = self.step_model.proba_step
                 self.params = tf_util.get_trainable_vars("qrdqn")
                 if self.batch_rl_mode:
-                    self.ope_reward_trainables = tf_util.get_trainable_vars("deepq/ope_reward_model")
+                    self.ope_reward_trainables = tf_util.get_trainable_vars("qrdqn/ope_reward_model")
 
                 # Initialize the parameters and copy them to the target network.
                 tf_util.initialize(self.sess)
@@ -266,7 +267,7 @@ class QRDQN(OffPolicyRLModel):
                     feed_dict = {rew_obs_ph: expert_obs,
                                  rew_actions_ph: expert_actions,
                                  rewards_ph: expert_rewards}
-                    rew_batch_loss= self.sess.run([rew_loss], feed_dict)
+                    rew_batch_loss= self.sess.run(rew_loss, feed_dict)
                     rew_val_loss += rew_batch_loss
                 rew_val_loss /= len(dataset.val_loader)
                 if self.verbose > 0:
@@ -541,6 +542,22 @@ class QRDQN(OffPolicyRLModel):
             return actions,None,actions_prob
         else:
             return actions, None
+
+    def predict_ope_rewards(self,observation, deterministic=True):
+        observation = np.array(observation)
+        observation = observation.reshape((-1,) + self.observation_space.shape)
+        with self.sess.as_default():
+            _, rewards, _ = self.ope_reward_model.step(observation, deterministic=deterministic)
+        return rewards
+
+    def predict_ope_qvalues(self, observation, deterministic=True):
+        observation = np.array(observation)
+        observation = observation.reshape((-1,) + self.observation_space.shape)
+        with self.sess.as_default():
+            _, q_values, _ = self.step_model.step(observation, deterministic=deterministic)
+
+        actions_prob = softmax(q_values,axis=-1)
+        return q_values,actions_prob
 
     def action_probability(self, observation, state=None, mask=None, actions=None, logp=False):
         observation = np.array(observation)

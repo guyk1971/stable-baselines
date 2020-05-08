@@ -241,7 +241,7 @@ class DQN(OffPolicyRLModel):
                     feed_dict = {rew_obs_ph: expert_obs,
                                  rew_actions_ph: expert_actions,
                                  rewards_ph: expert_rewards}
-                    rew_batch_loss= self.sess.run([rew_loss], feed_dict)
+                    rew_batch_loss= self.sess.run(rew_loss, feed_dict)
                     rew_val_loss += rew_batch_loss
                 rew_val_loss /= len(dataset.val_loader)
                 if self.verbose > 0:
@@ -514,6 +514,23 @@ class DQN(OffPolicyRLModel):
             return actions,None,actions_prob
         else:
             return actions, None
+
+    def predict_ope_rewards(self,observation, deterministic=True):
+        observation = np.array(observation)
+        observation = observation.reshape((-1,) + self.observation_space.shape)
+        with self.sess.as_default():
+            _, rewards, _ = self.ope_reward_model.step(observation, deterministic=deterministic)
+        return rewards
+
+    def predict_ope_qvalues(self, observation, deterministic=True):
+        observation = np.array(observation)
+        observation = observation.reshape((-1,) + self.observation_space.shape)
+        with self.sess.as_default():
+            _, q_values, _ = self.step_model.step(observation, deterministic=deterministic)
+
+        actions_prob = softmax(q_values,axis=-1)
+        return q_values,actions_prob
+
 
     def action_probability(self, observation, state=None, mask=None, actions=None, logp=False):
         observation = np.array(observation)
