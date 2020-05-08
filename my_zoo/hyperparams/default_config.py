@@ -92,9 +92,8 @@ class DQNAgentParams(AgentParams):
         self.param_noise = False
 
         # batch_rl defaults:
-        self.ope_freq = 1                       # num epochs between evaluations (Off Policy Eval)
-        self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
-        self.ope_n_episodes = 100
+        self.buffer_train_fraction = 1.0        # 80% will be used for training the policy and the reward model for DM
+
 
         # other default params
         self.gamma = 0.99
@@ -142,9 +141,7 @@ class QRDQNAgentParams(AgentParams):
         self.n_atoms = 50
 
         # batch_rl defaults:
-        self.ope_freq = 1  # num epochs between evaluations
-        self.buffer_train_fraction = 0.8        # 80% will be used for training the policy and the reward model for DM
-        self.ope_n_episodes = 100
+        self.buffer_train_fraction = 1.0        # 80% will be used for training the policy and the reward model for DM
 
         # other default params
         self.gamma = 0.99
