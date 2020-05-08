@@ -64,10 +64,10 @@ class DQN(OffPolicyRLModel):
         If None, the number of cpu of the current machine will be used.
     """
     def __init__(self, policy, env, replay_buffer=None, gamma=0.99, learning_rate=5e-4, buffer_size=50000, exploration_fraction=0.1,
-                 exploration_final_eps=0.02, exploration_initial_eps=1.0, train_freq=1, ope_freq=0, batch_size=32, double_q=True,
-                 learning_starts=1000, target_network_update_freq=500, buffer_train_fraction=0.8, prioritized_replay=False,
+                 exploration_final_eps=0.02, exploration_initial_eps=1.0, train_freq=1, batch_size=32, double_q=True,
+                 learning_starts=1000, target_network_update_freq=500, buffer_train_fraction=1.0, prioritized_replay=False,
                  prioritized_replay_alpha=0.6, prioritized_replay_beta0=0.4, prioritized_replay_beta_iters=None,
-                 prioritized_replay_eps=1e-6, param_noise=False, ope_n_episodes=100,
+                 prioritized_replay_eps=1e-6, param_noise=False,
                  n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
                  _init_setup_model=True, policy_kwargs=None, full_tensorboard_log=False, seed=None):
 
@@ -91,10 +91,9 @@ class DQN(OffPolicyRLModel):
         self.buffer_size = buffer_size
         self.learning_rate = learning_rate
         self.gamma = gamma
-        self.buffer_train_fraction = buffer_train_fraction      # for batch_rl
-        self.ope_freq = ope_freq            # off policy evaluation - not yes supported
-        self.ope_n_episodes = ope_n_episodes  # number of episodes to evaluate each time we evaluate
-
+        self.buffer_train_fraction = buffer_train_fraction      # ope - how much of the buffer will be used to train
+                                                                # the reward model vs. to evaluate the policy
+                                                                # this is obsolete
         self.tensorboard_log = tensorboard_log
         self.full_tensorboard_log = full_tensorboard_log
         self.double_q = double_q
@@ -103,6 +102,7 @@ class DQN(OffPolicyRLModel):
         self.sess = None
         self._train_step = None
         self.step_model = None
+        self.ope_reward_model = None
         self.update_target = None
         self.act = None
         self.proba_step = None
@@ -120,6 +120,11 @@ class DQN(OffPolicyRLModel):
         policy = self.step_model
         return policy.obs_ph, tf.placeholder(tf.int32, [None]), policy.q_values
 
+    def _get_ope_reward_placeholders(self):
+        # obs, action,reward,q_values
+        policy = self.ope_reward_model
+        return policy.obs_ph, tf.placeholder(tf.int32, [None]), tf.placeholder(tf.float32, [None]), policy.q_values
+
     def _setup_learn(self):
         # call base class to check we have an environment (currently needed for evaluation. in the future we'll do OPE
         # so we wont need an active env as long as we derive the action and observation space from the buffer)
@@ -131,16 +136,18 @@ class DQN(OffPolicyRLModel):
             self.dataset = ExperienceDataset(traj_data=self.replay_buffer,train_fraction=self.buffer_train_fraction,
                                              batch_size=self.batch_size,sequential_preprocessing=True)
 
-
     def setup_model(self):
 
         with SetVerbosity(self.verbose):
             assert not isinstance(self.action_space, gym.spaces.Box), \
                 "Error: DQN cannot output a gym.spaces.Box action space."
 
-            if self.batch_rl_mode and self.prioritized_replay:
-                logger.warn("batch_rl mode cant work with prioritied replay buffer --> disabling priority buffer")
-                self.prioritized_replay = False
+            reward_model = None
+            if self.batch_rl_mode:
+                reward_model = partial(self.policy, **self.policy_kwargs)
+                if self.prioritized_replay:
+                    logger.warn("batch_rl mode cant work with prioritied replay buffer --> disabling priority buffer")
+                    self.prioritized_replay = False
 
             # If the policy is wrap in functool.partial (e.g. to disable dueling)
             # unwrap it to check the class type
@@ -158,7 +165,7 @@ class DQN(OffPolicyRLModel):
 
                 optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
 
-                self.act, self._train_step, self.update_target, self.step_model = build_train(
+                self.act, self._train_step, self.update_target, self.step_model, self.ope_reward_model = build_train(
                     q_func=partial(self.policy, **self.policy_kwargs),
                     ob_space=self.observation_space,
                     ac_space=self.action_space,
@@ -167,17 +174,84 @@ class DQN(OffPolicyRLModel):
                     grad_norm_clipping=10,
                     param_noise=self.param_noise,
                     sess=self.sess,
+                    reward_model=reward_model,
                     full_tensorboard_log=self.full_tensorboard_log,
                     double_q=self.double_q
                 )
                 self.proba_step = self.step_model.proba_step
                 self.params = tf_util.get_trainable_vars("deepq")
+                if self.batch_rl_mode:
+                    self.ope_reward_trainables = tf_util.get_trainable_vars("deepq/ope_reward_model")
 
                 # Initialize the parameters and copy them to the target network.
                 tf_util.initialize(self.sess)
                 self.update_target(sess=self.sess)
 
                 self.summary = tf.summary.merge_all()
+
+    def _train_ope_rew_model(self,val_interval=None):
+        n_epochs = 50
+        lr=1e-3     # learning rate
+        batch_size=64
+        train_frac=0.7
+
+        if val_interval is None:
+            # Prevent modulo by zero
+            if n_epochs < 10:
+                val_interval = 1
+            else:
+                val_interval = int(n_epochs / 10)
+        dataset = ExperienceDataset(traj_data=self.replay_buffer,train_fraction=train_frac,batch_size=batch_size,
+                                sequential_preprocessing=True)
+        with self.graph.as_default():
+            # build the graph for reward model (for off policy evaluation)
+            with tf.variable_scope('ope_reward_pretrain'):
+                rew_obs_ph, rew_actions_ph, rewards_ph, model_rewards_ph = self._get_ope_reward_placeholders()
+                one_hot_actions = tf.one_hot(rew_actions_ph, self.action_space.n)
+                target_rewards = tf.where(one_hot_actions>0,tf.tile(rewards_ph[:,tf.newaxis],[1,self.action_space.n]),
+                                          model_rewards_ph)
+                rew_loss = tf_util.mse(model_rewards_ph,tf.stop_gradient(target_rewards))
+                rew_optimizer = tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-8)
+                rew_optim_op = rew_optimizer.minimize(rew_loss, var_list=self.ope_reward_trainables)
+                tf.summary.scalar('rew_pretrain_loss', rew_loss)
+
+            self.sess.run(tf.global_variables_initializer())
+
+        if self.verbose > 0:
+            logger.info("Training reward model with regression loss")
+
+        for epoch_idx in range(int(n_epochs)):
+            rew_epoch_loss = 0.0
+            # Full pass on the training set
+            for _ in range(len(dataset.train_loader)):
+                expert_obs, expert_actions,expert_rewards,_,_,_ = dataset.get_next_batch('train')
+                feed_dict = {rew_obs_ph: expert_obs,
+                             rew_actions_ph: expert_actions,
+                             rewards_ph: expert_rewards}
+                rew_batch_loss,_ = self.sess.run([rew_loss,rew_optim_op],feed_dict)
+                rew_epoch_loss += rew_batch_loss
+
+            rew_epoch_loss /= len(dataset.train_loader)
+
+            if self.verbose > 0 and (epoch_idx + 1) % val_interval == 0:
+                rew_val_loss = 0.0
+                # Full pass on the validation set
+                for _ in range(len(dataset.val_loader)):
+                    expert_obs, expert_actions,expert_rewards,_,_,_ = dataset.get_next_batch('val')
+                    feed_dict = {rew_obs_ph: expert_obs,
+                                 rew_actions_ph: expert_actions,
+                                 rewards_ph: expert_rewards}
+                    rew_batch_loss= self.sess.run([rew_loss], feed_dict)
+                    rew_val_loss += rew_batch_loss
+                rew_val_loss /= len(dataset.val_loader)
+                if self.verbose > 0:
+                    logger.info("================ Pre-Training epoch {0}/{1}: =============\n".format(epoch_idx,n_epochs))
+                    logger.info(
+                        "Reward Model: train loss {0:.6f}, val loss {1:.6f} ===\n".format(rew_epoch_loss, rew_val_loss))
+            # Free memory
+            del expert_obs, expert_actions, expert_rewards
+        return
+
 
     def _learn_from_static_buffer(self,total_timesteps,writer, callback=None, log_interval=10, tb_log_name="DQN"):
         iter_cnt = 0  # iterations counter
@@ -194,7 +268,7 @@ class DQN(OffPolicyRLModel):
             lr_now=self.learning_rate
             tot_epoch_loss=0
             for _ in range(n_minibatches):
-                obses_t, actions, rewards, obses_tp1, dones = self.dataset.get_next_batch('train')
+                obses_t, actions, rewards, obses_tp1, dones,_ = self.dataset.get_next_batch('train')
                 weights, batch_idxes = np.ones_like(rewards), None
                 # if lr_scheduling set the learning rate here and send it in the _train_step
                 if writer is not None:
@@ -219,7 +293,7 @@ class DQN(OffPolicyRLModel):
                 iter_cnt += 1
                 ts += len(obses_t)
                 tot_epoch_loss += np.mean(td_errors)
-                # in DBCQ, the step is training step done on a minibatch of samples.
+                # in batch rl, the step is training step done on a minibatch of samples.
                 if callback.on_step() is False:
                     break
             epoch += 1  # inc
@@ -231,33 +305,13 @@ class DQN(OffPolicyRLModel):
                 # Update target network periodically.
                 self.update_target(sess=self.sess)
                 last_updadte_target_ts = ts
-            # the following code should be enabled for Off Policy Evaluation when this will be implemented
-            if self.ope_freq > 0 and (epoch % self.ope_freq) == 0:
-                # if self.env is not None:
-                #     mean_reward, std_reward = online_policy_eval(self, self.env, n_eval_episodes=self.ope_n_episodes)
-                #     if writer is not None:
-                #         with tf.variable_scope('evaluation', reuse=False):
-                #             tbsum = tf.Summary()
-                #             tbsum.value.add(tag='mean_{0}_episode_reward'.format(self.ope_n_episodes),
-                #                             simple_value=mean_reward)
-                #             tbsum.value.add(tag='std_{0}_episode_reward'.format(self.ope_n_episodes),
-                #                             simple_value=std_reward)
-                #             writer.add_summary(tbsum, self.num_timesteps)
-                # else:
-                #     raise RuntimeError("Off Policy Evaluation is not supported yet")
-                # based on ope results we can decide whether to save the current model. currently always saving
-                save_path = self.tensorboard_log+'/model_params_{0}'.format(epoch)
-                logger.info('save checkpoint to '+save_path)
-                self.save(save_path)
-
 
 
             if self.verbose >= 1 and log_interval is not None:
+                logger.record_tabular("time steps", ts)
                 logger.record_tabular("epoch", epoch)
                 logger.record_tabular("epoch_loss", avg_epoch_loss)
                 logger.record_tabular("lr ", lr_now)
-                if mean_reward is not None:
-                    logger.record_tabular('mean {0} episode reward'.format(self.ope_n_episodes), mean_reward)
                 logger.dump_tabular()
 
     def learn(self, total_timesteps, callback=None, log_interval=10, tb_log_name="DQN",
@@ -270,7 +324,11 @@ class DQN(OffPolicyRLModel):
                 as writer:
             self._setup_learn()
 
-            if not self.batch_rl_mode:
+            if self.batch_rl_mode:
+                logger.info('training the reward model for off policy evaluation')
+                self._train_ope_rew_model(val_interval=1)
+                logger.info('finished training the reward model')
+            else:
                 # Create the replay buffer
                 if self.prioritized_replay:
                     self.replay_buffer = PrioritizedReplayBuffer(self.buffer_size, alpha=self.prioritized_replay_alpha)
@@ -492,8 +550,6 @@ class DQN(OffPolicyRLModel):
             "param_noise": self.param_noise,
             "learning_starts": self.learning_starts,
             "train_freq": self.train_freq,
-            "ope_freq": self.ope_freq,      # batch rl
-            "ope_n_episodes": self.ope_n_episodes,  # batch rl
             "prioritized_replay": self.prioritized_replay,
             "prioritized_replay_eps": self.prioritized_replay_eps,
             "batch_size": self.batch_size,

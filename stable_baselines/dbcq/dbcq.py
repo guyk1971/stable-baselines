@@ -52,7 +52,7 @@ class DBCQ(OffPolicyRLModel):
         If None, the number of cpu of the current machine will be used.
     """
     def __init__(self, policy, env, replay_buffer=None, gen_act_policy=None ,gamma=0.99, learning_rate=5e-4,
-                 ope_freq=0, batch_size=32, target_network_update_freq=500,buffer_train_fraction=1.0,
+                 batch_size=32, target_network_update_freq=500,buffer_train_fraction=1.0,
                  gen_act_params = None,gen_train_with_main=False,param_noise=False, act_distance_thresh=0.3,
                  n_cpu_tf_sess=None, verbose=0, tensorboard_log=None,
                  _init_setup_model=True, policy_kwargs=None, full_tensorboard_log=False, seed=None):
@@ -353,6 +353,7 @@ class DBCQ(OffPolicyRLModel):
                     last_updadte_target_ts = ts
 
                 if self.verbose >= 1 and log_interval is not None:
+                    logger.record_tabular("time steps", ts)
                     logger.record_tabular("epoch", epoch)
                     logger.record_tabular("epoch_loss", avg_epoch_loss)
                     logger.record_tabular("lr ",lr_now)

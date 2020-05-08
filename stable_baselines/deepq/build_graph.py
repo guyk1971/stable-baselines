@@ -319,7 +319,7 @@ def build_act_with_param_noise(q_func, ob_space, ac_space, stochastic_ph, update
     return act, obs_phs
 
 
-def build_train(q_func, ob_space, ac_space, optimizer, sess, grad_norm_clipping=None,
+def build_train(q_func, ob_space, ac_space, optimizer, sess, reward_model=None, grad_norm_clipping=None,
                 gamma=1.0, double_q=True, scope="deepq", reuse=None,
                 param_noise=False, param_noise_filter_func=None, full_tensorboard_log=False):
     """
@@ -331,6 +331,7 @@ def build_train(q_func, ob_space, ac_space, optimizer, sess, grad_norm_clipping=
     :param reuse: (bool) whether or not to reuse the graph variables
     :param optimizer: (tf.train.Optimizer) optimizer to use for the Q-learning objective.
     :param sess: (TensorFlow session) The current TensorFlow session
+    :param reward_model: (DQNPolicy) a model to estimate the reward (for batch rl - off policy evaluation)
     :param grad_norm_clipping: (float) clip gradient norms to this value. If None no clipping is performed.
     :param gamma: (float) discount rate.
     :param double_q: (bool) if true will use Double Q Learning (https://arxiv.org/abs/1509.06461). In general it is a
@@ -385,6 +386,12 @@ def build_train(q_func, ob_space, ac_space, optimizer, sess, grad_norm_clipping=
                 double_policy = q_func(sess, ob_space, ac_space, 1, 1, None, reuse=True)
                 double_q_values = double_policy.q_values
                 double_obs_ph = double_policy.obs_ph
+
+        # reward model network - for off policy evaluation
+        ope_reward_model = None
+        if reward_model:
+            with tf.variable_scope("ope_reward_model", reuse=False):
+                ope_reward_model = reward_model(sess, ob_space, ac_space, 1, 1, None, reuse=False)
 
     with tf.variable_scope("loss", reuse=reuse):
         # set up placeholders
@@ -464,4 +471,4 @@ def build_train(q_func, ob_space, ac_space, optimizer, sess, grad_norm_clipping=
     )
     update_target = tf_util.function([], [], updates=[update_target_expr])
 
-    return act_f, train, update_target, step_model
+    return act_f, train, update_target, step_model, ope_reward_model
