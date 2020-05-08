@@ -186,16 +186,17 @@ class DBCQ(OffPolicyRLModel):
 
         self.verbose = 1        # for debug
         if self.gen_act_params is None:
-            n_epochs = 50
+            gen_n_epochs = 50
             lr=1e-3     # learning rate
             batch_size=64
             train_frac=0.7
         else:
-            n_epochs = self.gen_act_params.get('n_epochs',50)
+            gen_n_epochs = self.gen_act_params.get('n_epochs',50)
             lr = self.gen_act_params.get('lr',1e-3)
             batch_size = self.gen_act_params.get('batch_size',64)
             train_frac = self.gen_act_params.get('train_frac',0.7)
-
+        rew_n_epochs=50
+        n_epochs = max(rew_n_epochs,gen_n_epochs)
         if val_interval is None:
             # Prevent modulo by zero
             if n_epochs < 10:
@@ -245,11 +246,15 @@ class DBCQ(OffPolicyRLModel):
                              rew_actions_ph: expert_actions,
                              rewards_ph: expert_rewards}
 
-                gen_batch_loss, _, rew_batch_loss,_ = self.sess.run([gen_loss, gen_optim_op,rew_loss,rew_optim_op],
-                                                                    feed_dict)
+                # gen_batch_loss, _, rew_batch_loss,_ = self.sess.run([gen_loss, gen_optim_op,rew_loss,rew_optim_op],
+                #                                                     feed_dict)
+                if epoch_idx<gen_n_epochs:
+                    gen_batch_loss, _ = self.sess.run([gen_loss, gen_optim_op],feed_dict)
+                    gen_epoch_loss += gen_batch_loss
 
-                gen_epoch_loss += gen_batch_loss
-                rew_epoch_loss += rew_batch_loss
+                if epoch_idx<rew_n_epochs:
+                    rew_batch_loss,_ = self.sess.run([rew_loss,rew_optim_op],feed_dict)
+                    rew_epoch_loss += rew_batch_loss
 
             gen_epoch_loss /= len(dataset.train_loader)
             rew_epoch_loss /= len(dataset.train_loader)
@@ -266,19 +271,24 @@ class DBCQ(OffPolicyRLModel):
                                  rew_actions_ph: expert_actions,
                                  rewards_ph: expert_rewards}
 
-                    gen_batch_loss, rew_batch_loss= self.sess.run([gen_loss,rew_loss], feed_dict)
-                    gen_val_loss += gen_batch_loss
-                    rew_val_loss += rew_batch_loss
+                    # gen_batch_loss, rew_batch_loss= self.sess.run([gen_loss,rew_loss], feed_dict)
+                    if epoch_idx<gen_n_epochs:
+                        gen_batch_loss = self.sess.run(gen_loss, feed_dict)
+                        gen_val_loss += gen_batch_loss
+
+                    if epoch_idx<rew_n_epochs:
+                        rew_batch_loss = self.sess.run(rew_loss, feed_dict)
+                        rew_val_loss += rew_batch_loss
 
                 gen_val_loss /= len(dataset.val_loader)
                 rew_val_loss /= len(dataset.val_loader)
                 if self.verbose > 0:
-                    # logger.info("==== Gen Model Training progress {:.2f}% ====".format(100 * (epoch_idx + 1) / n_epochs))
-                    # logger.info("Training loss: {:.6f}, Validation loss: {:.6f} \n".format(train_loss, val_loss))
                     logger.info("================ Pre-Training epoch {0}/{1}: =============\n".format(epoch_idx,n_epochs))
-                    logger.info("Gen Model: train loss {0:.6f}, val loss {1:.6f} ===\n".format(gen_epoch_loss,gen_val_loss))
-                    logger.info(
-                        "Reward Model: train loss {0:.6f}, val loss {1:.6f} ===\n".format(rew_epoch_loss, rew_val_loss))
+                    if epoch_idx<gen_n_epochs:
+                        logger.info("Gen Model: train loss {0:.6f}, val loss {1:.6f} ===\n".format(gen_epoch_loss,gen_val_loss))
+                    if epoch_idx<rew_n_epochs:
+                        logger.info(
+                            "Reward Model: train loss {0:.6f}, val loss {1:.6f} ===\n".format(rew_epoch_loss, rew_val_loss))
             # Free memory
             del expert_obs, expert_actions, expert_rewards
         return

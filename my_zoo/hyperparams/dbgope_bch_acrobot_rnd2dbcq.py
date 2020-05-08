@@ -31,6 +31,7 @@ agent_params.batch_size = 128
 agent_params.gen_act_params['lr'] = 1e-4
 agent_params.gen_act_params['n_epochs'] = 10
 agent_params.gen_act_params['batch_size'] = 128
+agent_params.gen_train_with_main = True
 
 
 ##########################################################
@@ -53,7 +54,7 @@ experiment_params.n_timesteps = int(1e7)
 
 experiment_params.evaluation_freq = int(experiment_params.n_timesteps/20)  # evaluate on eval env every this number of timesteps
 experiment_params.online_eval_n_episodes = 30
-experiment_params.off_policy_eval_dataset_eval_fraction = 0.3
+experiment_params.off_policy_eval_dataset_eval_fraction = 0.7
 
 # post training the main agent - if we want to record experience with the new expert:
 experiment_params.expert_steps_to_record = 0      # number of steps to rollout into the buffer
