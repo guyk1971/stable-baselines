@@ -36,7 +36,7 @@ from my_zoo.utils.utils import ALGOS
 from zoo.utils.hyperparams_opt import hyperparam_optimization
 from stable_baselines.gail import ExpertDataset
 from my_zoo.utils.common import *
-from my_zoo.utils.train import get_create_env,parse_agent_params,generate_experience_traj,load_experience_traj,\
+from my_zoo.utils.train import env_make,parse_agent_params,generate_experience_traj,load_experience_traj,\
     online_eval_results_analysis,OnlEvalTBCallback, UniformRandomModel
 
 
@@ -149,8 +149,7 @@ def run_experiment(experiment_params):
         n_envs = experiment_params.n_envs
         env_id = experiment_params.env_params.env_id
         logger.info('using {0} instances of {1} :'.format(n_envs,env_id))
-        create_env = get_create_env(algo,seed,experiment_params.env_params)
-        env = create_env(n_envs)
+        env = env_make(n_envs,experiment_params.env_params,algo,seed)
 
         # Stop env processes to free memory - not clear....
         if experiment_params.hp_optimize and n_envs > 1:

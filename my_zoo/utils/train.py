@@ -33,7 +33,7 @@ from my_zoo.utils.utils import make_env, linear_schedule, get_wrapper_class
 from zoo.utils.noise import LinearNormalActionNoise
 
 from my_zoo.hyperparams.default_config import CC_ENVS
-from my_zoo.my_envs import L2PEnv
+from my_zoo.my_envs import L2PEnv,DTTEnvSim,DTTEnvReal
 
 
 def get_create_env(algo,seed,env_params):
@@ -145,7 +145,11 @@ def env_make(n_envs,env_params,algo,seed):
     logger.info('using {0} instances of {1} :'.format(n_envs, env_id))
     if env_id=='L2P':
         env = L2PEnv()
-    else:
+    elif env_id=='DTTSim':
+        env = DTTEnvSim(platform=env_params.platform,workload=env_params.workload,norm_obs=env_params.norm_obs)
+    elif env_id=='DTTRealCSV':
+        env = DTTEnvReal()
+    else:       # for gym Classic Control (CC_ENV)
         create_env = get_create_env(algo,seed,env_params)
         env = create_env(n_envs)
     return env

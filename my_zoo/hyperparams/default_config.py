@@ -1,7 +1,7 @@
 import os
 import logging
 import numpy as np
-
+from my_zoo.my_envs import BENCHMARKS,PLATFORMS
 ALGO_IDS = ['a2c','acer','dqn','ddpg','sac','td3','ppo2','dbcq']
 # 'a2c': A2C,
 # 'acer': ACER,
@@ -35,6 +35,15 @@ class EnvParams:
     def as_dict(self):
         return vars(self)
 
+
+class DTTEnvSimParams(EnvParams):
+    def __init__(self):
+        super(EnvParams, self).__init__()
+        self.env_id = 'DTTSim'
+        self.workload = [BENCHMARKS['cb15'],BENCHMARKS['cooldown']]
+        self.platform = PLATFORMS['Scarlet']
+        self.norm_obs = True
+        self.log_output = None
 
 #############################
 # Agents Defaults
