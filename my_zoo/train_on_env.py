@@ -203,7 +203,7 @@ def run_experiment(experiment_params):
                 kwargs = {'log_interval': experiment_params.log_interval}
             if experiment_params.n_timesteps>0:
                 logger.info('training the agent')
-                eval_env = create_env(n_envs)
+                eval_env = env_make(n_envs,experiment_params.env_params,algo,seed)
                 # in online algorithms, we call the eval callbacks every single step:
                 eval_freq = int(experiment_params.evaluation_freq)
                 evalcb = None

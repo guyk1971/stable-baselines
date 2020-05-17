@@ -31,9 +31,8 @@ from stable_baselines import logger
 from stable_baselines.common import set_global_seeds
 from stable_baselines.common.ope import OPEManager,OffPolicyEvalCallback
 from my_zoo.utils.train import load_experience_traj,env_make,generate_experience_traj,eval_results_analysis,\
-    OnlEvalTBCallback,UniformRandomModel,OffPolicyEvalTBCallback
+    OnlEvalTBCallback,UniformRandomModel,OffPolicyEvalTBCallback,parse_agent_params
 from my_zoo.utils.utils import ALGOS
-from my_zoo.my_envs import L2PEnv
 import shutil
 
 
@@ -47,7 +46,7 @@ except ImportError:
 
 
 from my_zoo.utils.common import *
-from my_zoo.utils.train import get_create_env,parse_agent_params
+
 
 
 LOGGER_NAME=os.path.splitext(os.path.basename(__file__))[0]
@@ -65,15 +64,15 @@ def parse_cmd_line():
     args = parser.parse_args()
     return args
 
-def env_make(n_envs,env_params,algo,seed):
-    env_id = env_params.env_id
-    logger.info('using {0} instances of {1} :'.format(n_envs, env_id))
-    if env_id=='L2P':
-        env = L2PEnv()
-    else:
-        create_env = get_create_env(algo,seed,env_params)
-        env = create_env(n_envs)
-    return env
+# def env_make(n_envs,env_params,algo,seed):
+#     env_id = env_params.env_id
+#     logger.info('using {0} instances of {1} :'.format(n_envs, env_id))
+#     if env_id=='L2P':
+#         env = L2PEnv()
+#     else:
+#         create_env = get_create_env(algo,seed,env_params)
+#         env = create_env(n_envs)
+#     return env
 
 def create_experience_buffer(experiment_params,output_dir):
     '''
@@ -286,11 +285,11 @@ def run_experiment(experiment_params):
         if experiment_params.log_interval > -1:
             kwargs = {'log_interval': experiment_params.log_interval}
 
+        # when training on batch we do callback.on_step() every minibatch of samples
+        # thus the online_eval_freq which is given in steps should be converted to minibatches
         eval_freq = int(experiment_params.evaluation_freq / agent_hyperparams['batch_size'])
         evalcb = None
         if experiment_params.online_eval_n_episodes > 0:
-            # when training on batch we do callback.on_step() every minibatch of samples
-            # thus the online_eval_freq which is given in steps should be converted to minibatches
             eval_env = env_make(n_envs, experiment_params.env_params, algo, seed)
             evalcb = OnlEvalTBCallback(eval_env,
                                        n_eval_episodes=experiment_params.online_eval_n_episodes,
