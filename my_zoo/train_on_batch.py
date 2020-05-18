@@ -344,7 +344,7 @@ def main():
 
     args = parse_cmd_line()
     print('reading experiment params from '+args.exparams)
-    module_path = 'my_zoo.hyperparams.'+args.exparams
+    module_path = 'my_zoo.hyperparams.'+args.exparams.replace(os.path.sep,'.')
     exp_params_module = importlib.import_module(module_path)
     experiment_params = getattr(exp_params_module,'experiment_params')
     # set the path to the config file
@@ -359,7 +359,7 @@ def main():
         pass
 
     # create experiment folder and logger
-    exp_folder_name = args.exparams + '-' + time.strftime("%d-%m-%Y_%H-%M-%S")
+    exp_folder_name = os.path.basename(args.exparams) + '-' + time.strftime("%d-%m-%Y_%H-%M-%S")
     experiment_params.output_root_dir = os.path.join(experiment_params.output_root_dir,exp_folder_name)
     os.makedirs(experiment_params.output_root_dir, exist_ok=True)
     # copy the configuration file
