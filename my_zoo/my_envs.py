@@ -260,7 +260,9 @@ class Platform(object):
         self.state.ewma = self.state.ewma + (1.0/self.params.tau)*(self.state.power-self.state.ewma)
 
         # update thermal sensors
-        prev_tj = self.state.tj 
+        prev_tj = self.state.tj
+        # note : currently using the same model for all types of workloads.
+        # for better fit, use the corresponding workload parameters
         self.state.tj = predict_tj(self.state.power,prev_tj,self.params.tj_max,self.params.p2tj['cb15'])
         prev_tskn = self.state.tskn
         self.state.tskn = predict_tskn(self.state.tj,prev_tj,prev_tskn,self.params.tskn_max,self.params.tj2ts['cb15'])
