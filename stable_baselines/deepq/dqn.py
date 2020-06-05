@@ -364,8 +364,16 @@ class DQN(OffPolicyRLModel):
                 reset = True
                 obs = self.env.reset()
                 # Retrieve unnormalized observation for saving into the buffer
+                # Store only the unnormalized version
                 if self._vec_normalize_env is not None:
-                    obs_ = self._vec_normalize_env.get_original_obs().squeeze()
+                    new_obs_ = self._vec_normalize_env.get_original_obs().squeeze()
+                    reward_ = self._vec_normalize_env.get_original_reward().squeeze()
+                else:
+                    # Avoid changing the original ones
+                    obs_, new_obs_, reward_ = obs, new_obs, rew
+                # Store transition in the replay buffer.
+                self.replay_buffer_add(obs_, action, reward_, new_obs_, done, info)
+                obs = new_obs
 
                 for _ in tqdm(range(total_timesteps)):
                     # Take action and update exploration to the newest value

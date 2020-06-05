@@ -38,6 +38,7 @@ def train(env_id, num_timesteps, seed, policy,
     # Free memory
     del model
 
+
 def main():
     """
     Runs the test
