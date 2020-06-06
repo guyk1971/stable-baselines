@@ -70,6 +70,9 @@ class L2PEnv(gym.Env):
 #endregion
 ######################################################
 #region DTTEnvReal
+# this class defines the data that is extracted from the real environment. to be used when reading the csv
+# experience buffer extracted from the real ESIF file
+
 class DTTEnvReal(gym.Env):
     """
     Custom Environment that follows gym interface.
@@ -78,7 +81,7 @@ class DTTEnvReal(gym.Env):
     # Because of google colab, we cannot implement the GUI ('human' render mode)
     metadata = {'render.modes': ['console']}
 
-    def __init__(self, obs_dim=6,n_act=9):
+    def __init__(self, obs_dim=31,n_act=9):
         super(DTTEnvReal, self).__init__()
 
         # the observation space include obs_dim float values
@@ -131,162 +134,215 @@ class DTTEnvReal(gym.Env):
 
     def close(self):
         pass
+
 #endregion
 
-###########################################################
+#############################################################################################
 #region DTTEnvSim
+# definition of DTT environment that is simulating the real environment.
+# to be used for online training - to debug the agent's behavior
 from collections import namedtuple
 from enum import Enum
 from copy import copy
 from scipy.interpolate import interp1d
 
 IDLE_POWER = 1.0
-IDLE_TSKIN = 40.0
-IDLE_TJ = 45.0
 
-
-#####################################
+#########################################################################################
 # Workload definitions
 # the benchmarks are defined as list of tuples : (Power,Seconds)
-BENCHMARKS={'cb15':[(0,IDLE_POWER),(5,45),(10,45),(20,30),(40,30),(50,28),(60,IDLE_POWER)],
-            'cb20':[(0,IDLE_POWER),(10,44),(13,44),(20,32),(35,30),(45,30),(46,25),(200,25),(205,IDLE_POWER)],
-            'cooldown':[(0,IDLE_POWER),(300,IDLE_POWER)]}
+BENCHMARKS = {'cb15': [(0, IDLE_POWER), (5, 45), (10, 45), (20, 30), (40, 30), (50, 28), (60, IDLE_POWER)],
+              'cb20': [(0, IDLE_POWER), (10, 44), (13, 44), (20, 32), (35, 30), (45, 30), (46, 25), (200, 25),
+                       (205, IDLE_POWER)],
+              'cooldown': [(0, IDLE_POWER), (1, IDLE_POWER)],# each cooldown = 2 sec of idle
+              'bursty':[(0,IDLE_POWER),(2,55),(4,20),(5,IDLE_POWER)]}
 
+##########################################################################################
+# Platforms definition
 
-####################################
-# Platform definition
+#################################################
+# Base definitions
 # a simplified model to predict Tskin from Tj is:
-# tskn[n]=tskn[n-1]+Tj2TsknFactor*(tj[n]-tj[n-1])
-
-Tj2Tskn=namedtuple("Tj2Tskn",['intercept','tj_coef','tjm1_coef','tsm1_coef'])
-# Tj2TsknFactor = 0.3
-Tj2TsknFactor={'cb15X30':Tj2Tskn(0.631,0.003,0.007,0.973),
-                'cb15':Tj2Tskn(0.8,0.0027,0.012,0.963),
-                'cb20':Tj2Tskn(0.675,0.0039,0.085,0.969),
-                'cb20X30':Tj2Tskn(0.785,0.003,0.01,0.968)}
+# tskin[n]=tskin[n-1]+Tj2TskinFactor*(tj[n]-tj[n-1])
+# tskin[n]= intercept + tj_coef * tj[n] + tjm1_coef * tj[n-1] + tsm1_coef * tskin[n-1]
+Tj2Tskin = namedtuple("Tj2Tskin", ['intercept', 'tj_coef', 'tjm1_coef', 'tsm1_coef'])
 
 # tj[n]= intercept + p_coef * power[n] + tj_coef* tj[n-1]
-P2Tj=namedtuple("P2Tj",['intercept','p_coef','tj_coef'])
-Power2TjFactor={'cb15X30':P2Tj(47.74,0.791,0.277),
-                'cb15':P2Tj(11.17,0.419,0.75),
-                'cb20':P2Tj(14.63,0.581,0.68),
-                'cb20X30':P2Tj(45.38,0.797,0.303)}
+P2Tj = namedtuple("P2Tj", ['intercept', 'p_coef', 'tj_coef'])
 
-PlatformParamsScarlet = namedtuple("PlatformParamsScarlet", ['tdp', 'PL1max','PL1min', 'PL2max', 'PL2min', 'tj_max',
-                                                             'tskn_max', 'tskn_ofst','tau','p2tj','tj2ts'])
-SCARLET_TDP=15.0
-SCARLET_PL1MAX=44.0
-SCARLET_PL1MIN=9.0
-SCARLET_PL2MAX=44.0
-SCARLET_PL2MIN=24.0
-SCARLET_TJMAX=100.0
-SCARLET_TSKINMAX=60
-SCARLET_TSKINOFST=6.0
-SCARLET_TAU=28.0
+# ips[n] = intercept + p_coef * power[n] + pnm1_coef * power[n-1] + ipsnm1_coef * ips[n-1]
+P2ips = namedtuple("P2ips",['intercept','p_coef','pnm1_coef','ipsnm1_coef'])
 
-PLATFORMS={'Scarlet':PlatformParamsScarlet(tdp=SCARLET_TDP,PL1max=SCARLET_PL1MAX,PL1min=SCARLET_PL1MIN,PL2max=SCARLET_PL2MAX,PL2min=SCARLET_PL2MIN,
-                                           tj_max=SCARLET_TJMAX,tskn_max=SCARLET_TSKINMAX,tskn_ofst=SCARLET_TSKINOFST,tau=SCARLET_TAU,
-                                           p2tj=Power2TjFactor,tj2ts=Tj2TsknFactor)}
-
-
-
-
-def predict_tj(power:float,tj_nm1, tj_max, coefs:P2Tj):
-    return np.minimum(coefs.intercept+coefs.p_coef*power+coefs.tj_coef*tj_nm1,tj_max)
-
-
-def predict_tskn(curr_tj,prev_tj,prev_tskn,tskn_max,coefs:Tj2Tskn):
-    return np.minimum(coefs.intercept+coefs.tj_coef*curr_tj+coefs.tjm1_coef*prev_tj+coefs.tsm1_coef*prev_tskn,tskn_max)
 
 class PlatformState(object):
-    dim=6
-    def __init__(self,pl1=0.0,pl2=0.0,power=0.0,tj=0.0,tskn=0.0,ewma=0.0):
-        self.pl1=pl1
-        self.pl2=pl2
-        self.power=power
-        self.tj=tj
-        self.tskn=tskn
-        self.ewma=ewma
+    def __init__(self, pl1=0.0, pl2=0.0, power=0.0, tj=0.0, tskin=0.0, ewma=0.0,ips_mean=0.0):
+        self.pl1 = pl1
+        self.pl2 = pl2
+        self.power = power
+        self.tj = tj
+        self.tskin = tskin
+        self.ewma = ewma
+        self.ips_mean=ips_mean
+
     def __repr__(self):
-        return 'State(pl1={}, pl2={}, power={}, tj={}, tskn={}, ewma={})'.\
-            format(self.pl1,self.pl2,self.power,self.tj,self.tskn,self.ewma)
+        return 'State(' + str([k+'={}'.format(v) for k,v in self.__dict__.items()])+')'
+
 
 class Platform(object):
-    def __init__(self,platform_params):
-        self.params=platform_params
-        self.state=None
-        self.reset_state()
+    def __init__(self, platform_params):
+        self.params = platform_params
+        self.state = None
+
+    @staticmethod
+    def predict_tj(power: float, tj_nm1, tj_max, coefs: P2Tj):
+        return np.minimum(coefs.intercept + coefs.p_coef * power + coefs.tj_coef * tj_nm1, tj_max)
+
+    @staticmethod
+    def predict_tskin(curr_tj, prev_tj, prev_tskin, tskin_max, coefs: Tj2Tskin):
+        return np.minimum(
+            coefs.intercept + coefs.tj_coef * curr_tj + coefs.tjm1_coef * prev_tj + coefs.tsm1_coef * prev_tskin,
+            tskin_max)
+
+    @staticmethod
+    def predict_mean_ips(curr_power,prev_power,prev_ips,coefs:P2ips):
+        return (coefs.intercept + coefs.p_coef*curr_power + coefs.pnm1_coef*prev_power + coefs.ipsnm1_coef * prev_ips)
 
 
     @abstractmethod
-    def _run_dtt(self,req_pl1,req_pl2):
+    def _run_dtt(self, req_pl1, req_pl2):
         raise NotImplementedError
 
     @abstractmethod
-    def _run_pcode(self,act_pl1,act_pl2):
+    def _run_pcode(self, act_pl1, act_pl2):
         raise NotImplementedError
-    
+
     @abstractmethod
     def reset_state(self):
         raise NotImplementedError
-        
-    def set_state(self,state):
+
+    def set_state(self, state):
         self.state = state
 
     @abstractmethod
     def _norm_state(self):
         raise NotImplementedError
 
-
-    def get_state(self,norm=False):
+    def get_state(self, norm=False):
         if norm:
             return self._norm_state()
         return self.state
 
-
-    def get_power_budget(self,req_pl1,req_pl2):
-        act_pl1,act_pl2,clip_reason = self._run_dtt(req_pl1,req_pl2)
-        power_budget,clip_reason_pcode = self._run_pcode(act_pl1,act_pl2)
+    def get_power_budget(self, req_pl1, req_pl2):
+        act_pl1, act_pl2, clip_reason = self._run_dtt(req_pl1, req_pl2)
+        power_budget, clip_reason_pcode = self._run_pcode(act_pl1, act_pl2)
         clip_reason += clip_reason_pcode
-        if len(clip_reason)==0:
-            clip_reason+=(IAClipReason.No_Clip,)
-        self.state.pl1=act_pl1
-        self.state.pl2=act_pl2
-        return power_budget,clip_reason
+        if len(clip_reason) == 0:
+            clip_reason += (IAClipReason.No_Clip,)
+        self.state.pl1 = act_pl1
+        self.state.pl2 = act_pl2
+        return power_budget, clip_reason
 
-    def consume_power(self,power_consumed):
+    def consume_power(self, power_consumed,wl_name):
         # update ewma
-        self.state.power=power_consumed
-        self.state.ewma = self.state.ewma + (1.0/self.params.tau)*(self.state.power-self.state.ewma)
+        prev_power = self.state.power
+        self.state.power = power_consumed
+        # old ewma
+        # self.state.ewma = self.state.ewma + (1.0 / self.params.tau) * (self.state.power - self.state.ewma)
+        # new ewma
+        self.state.ewma = np.exp(-1.0/self.params.tau) * self.state.ewma + \
+                          (1-np.exp(-1.0 / self.params.tau)) * (self.state.pl1 - self.state.power)
 
         # update thermal sensors
         prev_tj = self.state.tj
         # note : currently using the same model for all types of workloads.
         # for better fit, use the corresponding workload parameters
-        self.state.tj = predict_tj(self.state.power,prev_tj,self.params.tj_max,self.params.p2tj['cb15'])
-        prev_tskn = self.state.tskn
-        self.state.tskn = predict_tskn(self.state.tj,prev_tj,prev_tskn,self.params.tskn_max,self.params.tj2ts['cb15'])
+        self.state.tj = self.predict_tj(self.state.power, prev_tj, self.params.tj_max, self.params.p2tj[wl_name])
+        prev_tskin = self.state.tskin
+        self.state.tskin = self.predict_tskin(self.state.tj, prev_tj, prev_tskin, self.params.tskin_max,
+                                       self.params.tj2ts[wl_name])
+
+        self.state.ips_mean = self.predict_mean_ips(self.state.power,prev_power,self.state.ips_mean,self.params.p2ips[wl_name])
 
 
+class IAClipReason(Enum):
+    No_Clip = 0
+    Thermal_Event = 1
+    Max_Turbo_Limit = 2
+
+#################################################
+# Scarlet specifics
+# trained on : ['rl_rnd_64','rl_rnd_64_3','rl_rnd_64_4','rl_rnd_64_5','rl_rnd_64_6']
+# filters cb15: [('cinebench',300),('cinebench',240),('cinebench',180),('cinebench',120),('cinebench',90),('cinebench',60),('cinebench',30)]
+# filter cb20: [('cb20',300),('cb20',240),('cb20',180),('cb20',120),('cb20',90),('cb20',60),('cb20',30)]
+# tskin[n]= intercept + tj_coef * tj[n] + tjm1_coef * tj[n-1] + tsm1_coef * tskin[n-1]
+# Tj2Tskin = namedtuple("Tj2Tskin", ['intercept', 'tj_coef', 'tjm1_coef', 'tsm1_coef'])
+# Tj2TskinFactor = {'cb15X30': Tj2Tskin(0.631, 0.003, 0.007, 0.973),
+#                  'cb15': Tj2Tskin(0.8, 0.0027, 0.012, 0.963),
+#                  'cooldown': Tj2Tskin(0.8, 0.0027, 0.012, 0.963),   # arbitrarily = cb15
+#                  'cb20': Tj2Tskin(0.675, 0.0039, 0.0085, 0.969),
+#                  'cb20X30': Tj2Tskin(0.785, 0.003, 0.01, 0.968)}
+Tj2TskinFactor = {'cb15': Tj2Tskin(0.6, 0.0056, 0.0085, 0.97),
+                 'cooldown': Tj2Tskin(0.8, 0.0027, 0.012, 0.963),   # arbitrarily = cb15
+                 'cb20': Tj2Tskin(0.596, 0.0024, 0.01, 0.97)}
+
+
+# tj[n]= intercept + p_coef * power[n] + tj_coef * tj[n-1]
+# P2Tj = namedtuple("P2Tj", ['intercept', 'p_coef', 'tj_coef'])
+# Power2TjFactor = {'cb15X30': P2Tj(47.74, 0.791, 0.277),
+#                   'cb15': P2Tj(11.17, 0.419, 0.75),
+#                   'cooldown': P2Tj(11.17, 0.419, 0.75),     # arbitrarily = cb15
+#                   'cb20': P2Tj(14.63, 0.581, 0.68),
+#                   'cb20X30': P2Tj(45.38, 0.797, 0.303)}
+Power2TjFactor = {'cb15': P2Tj(9.62, 0.294, 0.81),
+                  'cooldown': P2Tj(9.62, 0.294, 0.81),     # arbitrarily = cb15
+                  'cb20': P2Tj(9.79, 0.33, 0.81)}
+
+# ips[n] = intercept + p_coef * power[n] + pnm1_coef * power[n-1] + ipsnm1_coef * ips[n-1]
+Power2IPSmean = {'cb15':P2ips(-12500268.871777534, 8.04534221e+07, -7.10065226e+07, 9.20609571e-01),
+                 'cooldown':P2ips(-7830878.88678503, 8.42984945e+07, -7.61181444e+07,9.38108383e-01),
+                 'cb20':P2ips(-6068173.380416393, 9.06084012e+07, -7.84225589e+07,  9.12361485e-01)}
+
+PlatformParamsScarlet = namedtuple("PlatformParamsScarlet", ['tdp', 'pl1_min','pl1_max', 'pl2_min', 'pl2_max',
+                                                             'tj_idle', 'tj_max', 'tskin_idle','tskin_max',
+                                                             'ips_idle','ips_max',
+                                                             'tskin_ofst', 'tau', 'p2tj', 'tj2ts','p2ips'])
+
+SCARLET_TDP = 15.0
+SCARLET_PL1MAX = 64.0
+SCARLET_PL1MIN = 9.0
+SCARLET_PL2MAX = 64.0
+SCARLET_PL2MIN = 30.0
+SCARLET_TJIDLE = 45.0
+SCARLET_TJMAX = 100.0
+SCARLET_TSKINIDLE=40.0
+SCARLET_TSKINMAX = 65.0
+SCARLET_TSKINOFST = 5.5
+SCARLET_TAU = 28.0
+SCARLET_INITIAL_PL1 = 25.0      # SCARLET_PL1MAX
+SCARLET_INITIAL_PL2 = 64.0      # SCARLET_PL2MAX
+SCARLET_IPS_MAX = 1e10
+SCARLET_IPS_IDLE = 47e6
 class StateScarlet(PlatformState):
-    def __init__(self,pl1=0.0,pl2=0.0,power=0.0,tj=0.0,tskn=0.0,ewma=0.0):
-        super(StateScarlet,self).__init__(pl1,pl2,power,tj,tskn,ewma)
-        self.pl1=pl1
-        self.pl2=pl2
-        self.power=power
-        self.tj=tj
-        self.tskn=tskn
-        self.ewma=ewma
+    def __init__(self, pl1=0.0, pl2=0.0, power=0.0, tj=0.0, tskin=0.0, ewma=0.0,ips_mean=0):
+        super(StateScarlet, self).__init__(pl1, pl2, power, tj, tskin, ewma,ips_mean)
+        self.pl1 = pl1
+        self.pl2 = pl2
+        self.power = power
+        self.tj = tj
+        self.tskin = tskin
+        self.ewma = ewma
+        self.ips_mean = ips_mean
+
     def __repr__(self):
-        return 'State(pl1={}, pl2={}, power={}, tj={}, tskn={}, ewma={})'.\
-            format(self.pl1,self.pl2,self.power,self.tj,self.tskn,self.ewma)
+        return 'State(pl1={}, pl2={}, power={}, tj={}, tskin={}, ewma={},ips_mean={})'. \
+            format(self.pl1, self.pl2, self.power, self.tj, self.tskin, self.ewma, self.ips_mean)
 
 
 class Scarlet(Platform):
-    def __init__(self,platform_params):
-        super(Scarlet,self).__init__(platform_params)
+    def __init__(self, platform_params):
+        super(Scarlet, self).__init__(platform_params)
 
-    def _run_dtt(self,req_pl1,req_pl2):
+    def _run_dtt(self, req_pl1, req_pl2):
         '''
         tries to apply the power levels requested by the policy.
         conducts a series of checks to what are the allowed power levels
@@ -301,65 +357,73 @@ class Scarlet(Platform):
 
         # check pl1
         # here we follow the passive table to see if we need to relax pl1,pl2
-        if self.state.tskn >= (self.params.tskn_max-self.params.tskn_ofst):
+        if self.state.tskin >= (self.params.tskin_max - self.params.tskin_ofst):
             # thermal event. reduce act_pl1 to PL1_min
-            act_pl1=self.params.PL1min
+            act_pl1 = self.params.pl1_min
             clip_reason += (IAClipReason.Thermal_Event,)
-        return act_pl1,act_pl2,clip_reason
-        
-    
-    def _run_pcode(self,act_pl1,act_pl2):
+        return act_pl1, act_pl2, clip_reason
+
+    def _run_pcode(self, act_pl1, act_pl2):
         # the following depends on the way we calculate ewma
-        clip_reason=()
-        power_budget=self.state.pl2
-        if self.state.ewma >= act_pl1:
+        clip_reason = ()
+        power_budget = self.state.pl2
+        # if self.state.ewma >= act_pl1:   # old calculation
+        if self.state.ewma <= 0:    # new calculation
             clip_reason += (IAClipReason.Max_Turbo_Limit,)
             power_budget = self.state.pl1
-        return power_budget,clip_reason
-
+        return power_budget, clip_reason
 
     def reset_state(self):
         '''
         reset_state simulate a system that has been IDLE for a long time
         '''
         # note that ewma depends on the way it is calculated. currently set to IDLE_POWER.
-        # with the new formula it should be SCARLET_PL1MAX-IDLE_POWER
-        self.state = StateScarlet(pl1=SCARLET_PL1MAX,pl2=SCARLET_PL2MAX,power=IDLE_POWER,tj=IDLE_TJ,tskn=IDLE_TSKIN,ewma=IDLE_POWER)
+        # with the new formula it should be SCARLET_INITIAL_PL1-IDLE_POWER
+        self.state = StateScarlet(pl1=SCARLET_INITIAL_PL1, pl2=SCARLET_INITIAL_PL2, power=IDLE_POWER, tj=SCARLET_TJIDLE,
+                                  tskin=SCARLET_TSKINIDLE, ewma=(SCARLET_INITIAL_PL1-IDLE_POWER))
+
         # inject some noise
         self.state.tj = np.abs(self.state.tj + np.random.randn())
-        self.state.tskn = np.abs(self.state.tskn + np.random.randn())
+        self.state.tskin = np.abs(self.state.tskin + np.random.randn())
         self.state.power = np.abs(self.state.power + np.random.randn())
-        return 
+        return self.get_state()
 
     def _norm_state(self):
-        pl1=self.state.pl1/self.params.PL1max
-        pl2=self.state.pl2/self.params.PL2max
-        power=self.state.power/self.params.PL2max
-        tj=self.state.tj/self.params.tj_max
-        tskn=self.state.tskn/self.params.tskn_max
-        ewma=self.state.ewma/self.params.PL1max
-        return StateScarlet(pl1,pl2,power,tj,tskn,ewma)
+        pl1 = (self.state.pl1 - self.params.pl1_min) / (self.params.pl1_max - self.params.pl1_min)
+        pl2 = (self.state.pl2 - self.params.pl2_min) / (self.params.pl2_max - self.params.pl2_min)
+        power = (self.state.power - self.params.pl1_min) / (self.params.pl2_max - self.params.pl2_min)
+        tj = (self.state.tj - self.params.tj_idle) / (self.params.tj_max-self.params.tj_idle)
+        tskin = (self.state.tskin - self.params.tskin_idle) / (self.params.tskin_max - self.params.tskin_idle)
+        ewma = self.state.ewma / self.state.pl1
+        ips_mean = self.state.ips_mean / self.params.ips_max
+        return StateScarlet(pl1, pl2, power, tj, tskin, ewma,ips_mean)
 
-
-
-
+#################################################
+# Billie specifics - to fill in like in scarlet
 class Billie(Platform):
-    def __init__(self,platform_params):
-        super(Billie,self).__init__(platform_params)
-    
-    def _run_dtt(self,req_pl1,req_pl2):
-        pass
-    
-    def _run_pcode(self,act_pl1,act_pl2):
+    def __init__(self, platform_params):
+        super(Billie, self).__init__(platform_params)
+
+    def _run_dtt(self, req_pl1, req_pl2):
         pass
 
+    def _run_pcode(self, act_pl1, act_pl2):
+        pass
 
-class IAClipReason(Enum):
-    No_Clip = 0
-    Thermal_Event = 1
-    Max_Turbo_Limit = 2
+################################################
+# Platforms dictionary
+PLATFORMS = {'Scarlet': Scarlet(PlatformParamsScarlet(tdp=SCARLET_TDP, pl1_min=SCARLET_PL1MIN, pl1_max=SCARLET_PL1MAX,
+                                                      pl2_min=SCARLET_PL2MIN, pl2_max=SCARLET_PL2MAX,
+                                                      tj_idle=SCARLET_TJIDLE, tj_max=SCARLET_TJMAX,
+                                                      tskin_idle=SCARLET_TSKINIDLE ,tskin_max=SCARLET_TSKINMAX,
+                                                      ips_idle=SCARLET_IPS_IDLE,ips_max=SCARLET_IPS_MAX,
+                                                      tskin_ofst=SCARLET_TSKINOFST, tau=SCARLET_TAU,
+                                                      p2tj=Power2TjFactor, tj2ts=Tj2TskinFactor,
+                                                      p2ips=Power2IPSmean))}
 
 
+#############################################################################################
+# DTTEnvSim definition
 class DTTEnvSim(gym.Env):
     """
     Custom Environment that follows gym interface.
@@ -367,66 +431,82 @@ class DTTEnvSim(gym.Env):
     """
     # Because of google colab, we cannot implement the GUI ('human' render mode)
     metadata = {'render.modes': ['console']}
-    dPL={0:(-0.5,-0.5),1:(0,-0.5),2:(0.5,-0.5),
-         3:(-0.5,0),4:(0,0),5:(0.5,0),
-         6:(-0.5,0.5),7:(0,0.5),8:(0.5,0.5)}
+    dPL = {0: (-0.5, -0.5), 1: (0, -0.5), 2: (0.5, -0.5),
+           3: (-0.5, 0), 4: (0, 0), 5: (0.5, 0),
+           6: (-0.5, 0.5), 7: (0, 0.5), 8: (0.5, 0.5)}
 
-    def __init__(self,platform,workload_params, norm_obs=True, log_output=None):
+    def __init__(self, platform, workload_params, norm_obs=False, full_reset=True, log_output=None):
         super(DTTEnvSim, self).__init__()
-        
+
         self.platform = platform
-        self.workload_params=workload_params
-        self.state = self.platform.get_state()      # assuming not normalized state as default
+        self.workload_params = workload_params
+        self.state = self.platform.reset_state()  # assuming not normalized state as default
         # the observation space include obs_dim float values
         self.obs_dim = len(self.state.__dict__.keys())
 
         # Currently assuming discrete action space with n_act actions
         self.act_dim = 1
-        self.norm_obs=norm_obs
-        self.log_output=log_output
+        self.norm_obs = norm_obs
+        self.log_output = log_output
         if self.log_output is not None:
-            self.log_output = os.path.join(self.log_output,'DTTSim_esif.csv')
-            self.esif_cols = ['timestamp']+list(self.state.__dict__.keys())+['Clip']
+            self.log_output = os.path.join(self.log_output, 'DTTSim_esif.csv')
+            self.esif_cols = ['timestamp'] + list(self.state.__dict__.keys()) + ['Clip']
             self.out_df = pd.DataFrame(columns=self.esif_cols)
-            self.tsdf = pd.DataFrame(columns=self.esif_cols)        # include a single timestep
+            self.tsdf = pd.DataFrame(columns=self.esif_cols)  # include a single timestep
 
         # Define action and observation space
         # They must be gym.spaces objects
         # Example when using discrete actions, we have two: left and right
-        n_act= len(self.dPL)
+        n_act = len(self.dPL)
         self.action_space = spaces.Discrete(n_act)
         # The observation will be the coordinate of the agent
         # this can be described both by Discrete and Box space
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf,shape=(self.obs_dim,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float32)
         self.max_path_length = np.inf
+        self.full_reset = full_reset
 
     def get_state(self):
         state = self.platform.get_state(norm=self.norm_obs).__dict__.values()
         return np.array([s for s in state])
+
+    def _pop_workload(self):
+        next_wl = self.workload_stack.pop(0)
+        self.wip_name, self.wip_queue = next_wl.popitem()
 
     def reset(self):
         """
         Important: the observation must be a numpy array
         :return: (np.array)
         """
-        self.step_idx=0
+        self.step_idx = 0
         # reset the workload
         # fill in the queue of steps to perform. each includes the power it requires
-        queue = []
-        for wl in self.workload_params:
+
+        # queue = []
+        # self.remaining_workloads_in_episode = self.workload_params
+        # for wl in self.remaining_workloads_in_episode:
+        #     x = [c[0] for c in wl]
+        #     y = [c[1] for c in wl]
+        #     f = interp1d(x, y)
+        #     queue.append(f(range(x[-1] + 1)))
+        # self.queue = [e for s in queue for e in s]
+
+        self.workload_stack = []
+        for wl_name in self.workload_params:
+            wl=BENCHMARKS[wl_name]
             x = [c[0] for c in wl]
             y = [c[1] for c in wl]
             f = interp1d(x, y)
-            queue.append(f(range(x[-1]+1)))
-        self.queue = [e for s in queue for e in s]
+            self.workload_stack.append({wl_name:list(f(range(x[-1] + 1)))})
+        self.wip_queue = []
         self.req_power_for_curr_step = 0
-        # reset the platform
-        self.platform.reset_state()
-        self.state=self.platform.get_state()        # get unnormalized state from the platform
-        return self.get_state()
+        # reset the platform if full reset
+        if self.full_reset:
+            self.state = self.platform.reset_state()  # get unnormalized state from the platform
+        return self.get_state()  # get normalized state if needed (self.norm_obs=True)
 
     def _is_done(self):
-        return (len(self.queue)==0) and (self.req_power_for_curr_step==0)
+        return (len(self.workload_stack) == 0) and (len(self.wip_queue) == 0) and (self.req_power_for_curr_step == 0)
 
     def step(self, action):
         # do one step in the system given the action and return the state of the system and the reward
@@ -434,54 +514,59 @@ class DTTEnvSim(gym.Env):
         # i.e. we assume the action was provided at time step n, so we move the system to time step n+1 and
         # return the impact on the system assuming the action was performed during the nth time step and we return
         # the state of the system and the reward at the end of this period (thus they are at time step n+1)
-        if (not isinstance(action,np.int64)) or (action < 0) or (action >= self.action_space.n):
+        if (not (isinstance(action, np.int64) or isinstance(action, int))  or (action < 0) or (action >= self.action_space.n)):
             raise ValueError("Received invalid action={} which is not part of the action space".format(action))
 
         # add the next power to the buffer of compute we need to perform
-        if len(self.queue)>0:
-            self.req_power_for_curr_step += self.queue.pop(0)
+        if (self.req_power_for_curr_step==0) and (len(self.wip_queue)==0) and (len(self.workload_stack)>0):
+            self._pop_workload()
+        if len(self.wip_queue) > 0:
+            self.req_power_for_curr_step += self.wip_queue.pop(0)
 
         # calculate the requested power levels
-        dpl1,dpl2 = self.dPL[action]
+        dpl1, dpl2 = self.dPL[action]
         # calc the power levels the agent asked to apply
-        req_pl1 = max(min(self.state.pl1 + dpl1,self.platform.params.PL1max),self.platform.params.PL1min)
-        req_pl2 = max(min(self.state.pl2 + dpl2,self.platform.params.PL2max),self.platform.params.PL2min)
-        
+        req_pl2 = max(min(self.state.pl2 + dpl2, self.platform.params.pl2_max), self.platform.params.pl2_min)
+        req_pl1 = max(min(self.state.pl1 + dpl1, self.platform.params.pl1_max), self.platform.params.pl1_min)
+        req_pl1 = min(req_pl1,req_pl2)
+
+        # to test fixed values - for debug
+        # req_pl1=SCARLET_INITIAL_PL1
+        # req_pl2=SCARLET_INITIAL_PL2
+
         # assuming these levels are supported given system state,
-        power_budget,ia_clip_reason = self.platform.get_power_budget(req_pl1,req_pl2)
+        power_budget, ia_clip_reason = self.platform.get_power_budget(req_pl1, req_pl2)
 
-        bg_power = np.abs(np.random.randn())        # random background power
+        bg_power = np.abs(np.random.randn())  # random background power
 
-        if power_budget<=(self.req_power_for_curr_step+bg_power):
-            workload_power_consumed = power_budget-bg_power
+        if power_budget <= (self.req_power_for_curr_step + bg_power):
+            workload_power_consumed = power_budget - bg_power
             total_power_consumed = power_budget
         else:
             workload_power_consumed = self.req_power_for_curr_step
             total_power_consumed = workload_power_consumed + bg_power
 
-        actual_power_consumed = min(power_budget,self.req_power_for_curr_step)
+        actual_power_consumed = min(power_budget, self.req_power_for_curr_step)
 
-        self.platform.consume_power(total_power_consumed)
+        self.platform.consume_power(total_power_consumed,self.wip_name)
         self.req_power_for_curr_step -= workload_power_consumed
 
         self.state = self.platform.get_state()
 
-        # calc reward
-        reward = (self.state.pl1 - self.platform.params.PL1max) + (self.state.pl2 - self.platform.params.PL2max) - 1
-        if self.state.tskn > (self.platform.params.tskn_max-self.platform.params.tskn_ofst):
+        # calc reward - default. can be overriden by wrapper
+        reward = (self.state.pl1 - self.platform.params.pl1_max) + (self.state.pl2 - self.platform.params.pl2_max) - 1
+        if self.state.tskin > (self.platform.params.tskin_max - self.platform.params.tskin_ofst):
             reward -= 1000
 
         done = self._is_done()
         # Optionally we can pass additional info, we are not using that for now
-        info = {'IAClipReason':ia_clip_reason}
+        info = {'IAClipReason': ia_clip_reason}
         if self.log_output:
-            self.tsdf.loc[0] = [self.step_idx]+ list(self.state.__dict__.values()) + [info['IAClipReason']]
+            self.tsdf.loc[0] = [self.step_idx] + list(self.state.__dict__.values()) + [info['IAClipReason']]
             self.out_df = self.out_df.append(self.tsdf)
         self.step_idx += 1
 
         return self.get_state(), reward, done, info
-
-
 
     def render(self, mode='console'):
         if mode != 'console':
@@ -492,41 +577,79 @@ class DTTEnvSim(gym.Env):
             self.out_df.set_index('timestamp', inplace=True)
             self.out_df.to_csv(self.log_output)
 
-#endregion
+
+# endregion
 
 def main():
-    
-    platform = Scarlet(PLATFORMS['Scarlet'])
+    platform = PLATFORMS['Scarlet']
 
-    env = DTTEnvSim(platform,workload_params=[BENCHMARKS['cb15'],BENCHMARKS['cooldown']]*20,norm_obs=False,log_output=os.getcwd())
-    dPL2act={v:np.int64(k) for k,v in env.dPL.items()}
-    obs=env.reset()
+    # workload_params = 20*([BENCHMARKS['cb15']]+[BENCHMARKS['cooldown']]*30+\
+    #                   [BENCHMARKS['bursty']]+[BENCHMARKS['cooldown']]*10+ \
+    #                   [BENCHMARKS['bursty']] + [BENCHMARKS['cooldown']] * 5 + \
+    #                   [BENCHMARKS['bursty']] + [BENCHMARKS['cooldown']] * 5)
+
+    # to create the following experiment: (benchmark num_runs sec_between_runs)
+    # time between iterations : 300 sec
+    # - cb15 10 120  --> 10*(['cb15']+['cooldown']*60)
+    # - cb15 10 60   --> 10*(['cb15']+['cooldown']*30)
+    # - cb15 10 30   --> 10*(['cb15']+['cooldown']*15)
+    # do the following:
+    # workload_params = 10*(['cb15']+['cooldown']*60) +\
+    #                   ['cooldown'] * 150 + \
+    #                   10*(['cb15']+['cooldown']*30) + \
+    #                   ['cooldown'] * 150 + \
+    #                   10*(['cb15']+['cooldown']*15)
+
+    workload_params = 10*(['cb15']+['cooldown']*60) +\
+                      ['cooldown'] * 150 + \
+                      10*(['cb20']+['cooldown']*60) + \
+                      ['cooldown'] * 150 + \
+                      10*(['cb15']+['cooldown']*45) + \
+                      ['cooldown'] * 150 + \
+                      10 * (['cb20'] + ['cooldown'] * 45) + \
+                      ['cooldown'] * 150 + \
+                      10 * (['cb15'] + ['cooldown'] * 30) + \
+                      ['cooldown'] * 150 + \
+                      10 * (['cb20'] + ['cooldown'] * 30) + \
+                      ['cooldown'] * 150 + \
+                      10 * (['cb15'] + ['cooldown'] * 15) + \
+                      ['cooldown'] * 150 + \
+                      10 * (['cb20'] + ['cooldown'] * 15)
+
+    env = DTTEnvSim(platform, workload_params=workload_params, norm_obs=False,
+                    log_output=os.getcwd())
+    dPL2act = {v: np.int64(k) for k, v in env.dPL.items()}
+    obs = env.reset()
     done = False
-    esif_cols=['timestamp']+list(platform.state.__dict__.keys())+['Clip']
+    esif_cols = ['timestamp'] + list(platform.state.__dict__.keys()) + ['Clip']
     out_df = pd.DataFrame(columns=esif_cols)
-    tsdf=pd.DataFrame(columns=esif_cols)
+    tsdf = pd.DataFrame(columns=esif_cols)
     ts = 0
     a1 = 0
-    a2 = 0   # start with no change
+    a2 = 0  # start with no change
     total_rew = 0
     while not done:
-        act = dPL2act[(a1,a2)]
-        obs,rew,done,info=env.step(act)
+        act = dPL2act[(a1, a2)]
+        # act = np.random.randint(0,9)    # for random policy
+        obs, rew, done, info = env.step(act)
         total_rew += rew
-        # obs = ['pl1','pl2','power','tj','tskn','ewma']
+        # obs = ['pl1','pl2','power','tj','tskin','ewma']
         # policy : as long as we're below the max value, aim to increase
-        a1 = 0.5 if obs[0]<env.platform.params.PL1max else 0
-        a2 = 0.5 if obs[1]<env.platform.params.PL2max else 0
-        tsdf.loc[0]=[ts]+list(obs)+[info['IAClipReason']]
-        out_df=out_df.append(tsdf)
-        ts+=1
+        a1 = 0.5 if obs[0] < env.platform.params.pl1_max else 0
+        a2 = 0.5 if obs[1] < env.platform.params.pl2_max else 0
+        tsdf.loc[0] = [ts] + list(obs) + [info['IAClipReason']]
+        out_df = out_df.append(tsdf)
+        ts += 1
     env.close()
+    out_df['ips_mean']=out_df['ips_mean']/1e8
     print('session completed. total reward: {}'.format(total_rew))
-    out_df.set_index('timestamp',inplace=True)
+    out_df.set_index('timestamp', inplace=True)
     out_df.to_csv('sim_esif.csv')
-    out_df.loc[:,esif_cols[1:-1]].plot(figsize=(8,4),grid=True)
+    out_df.loc[:, esif_cols[1:-1]].plot(figsize=(8, 4), grid=True)
     plt.show()
+
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
+
     main()
