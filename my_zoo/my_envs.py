@@ -7,7 +7,8 @@ from gym import spaces
 import numpy as np
 import os
 import pandas as pd
-from abc import ABC, abstractmethod
+from abc import abstractmethod
+from dataclasses import dataclass
 ######################################################
 #region L2P
 class L2PEnv(gym.Env):
@@ -174,21 +175,7 @@ P2Tj = namedtuple("P2Tj", ['intercept', 'p_coef', 'tj_coef'])
 P2ips = namedtuple("P2ips",['intercept','p_coef','pnm1_coef','ipsnm1_coef'])
 
 
-class PlatformState(object):
-    def __init__(self, pl1=0.0, pl2=0.0, power=0.0, tj=0.0, tskin=0.0, ewma=0.0,ips_mean=0.0):
-        self.pl1 = pl1
-        self.pl2 = pl2
-        self.power = power
-        self.tj = tj
-        self.tskin = tskin
-        self.ewma = ewma
-        self.ips_mean=ips_mean
-
-    def __repr__(self):
-        return 'State(' + str([k+'={}'.format(v) for k,v in self.__dict__.items()])+')'
-
-
-class Platform(object):
+class Platform:
     def __init__(self, platform_params):
         self.params = platform_params
         self.state = None
@@ -242,27 +229,9 @@ class Platform(object):
         self.state.pl2 = act_pl2
         return power_budget, clip_reason
 
+    @abstractmethod
     def consume_power(self, power_consumed,wl_name):
-        # update ewma
-        prev_power = self.state.power
-        self.state.power = power_consumed
-        # old ewma
-        # self.state.ewma = self.state.ewma + (1.0 / self.params.tau) * (self.state.power - self.state.ewma)
-        # new ewma
-        self.state.ewma = np.exp(-1.0/self.params.tau) * self.state.ewma + \
-                          (1-np.exp(-1.0 / self.params.tau)) * (self.state.pl1 - self.state.power)
-
-        # update thermal sensors
-        prev_tj = self.state.tj
-        # note : currently using the same model for all types of workloads.
-        # for better fit, use the corresponding workload parameters
-        self.state.tj = self.predict_tj(self.state.power, prev_tj, self.params.tj_max, self.params.p2tj[wl_name])
-        prev_tskin = self.state.tskin
-        self.state.tskin = self.predict_tskin(self.state.tj, prev_tj, prev_tskin, self.params.tskin_max,
-                                       self.params.tj2ts[wl_name])
-
-        self.state.ips_mean = self.predict_mean_ips(self.state.power,prev_power,self.state.ips_mean,self.params.p2ips[wl_name])
-
+        raise NotImplementedError
 
 class IAClipReason(Enum):
     No_Clip = 0
@@ -315,6 +284,7 @@ SCARLET_PL2MIN = 30.0
 SCARLET_TJIDLE = 45.0
 SCARLET_TJMAX = 100.0
 SCARLET_TSKINIDLE=40.0
+SCARLET_TMEMIDLE=40.0
 SCARLET_TSKINMAX = 65.0
 SCARLET_TSKINOFST = 5.5
 SCARLET_TAU = 28.0
@@ -322,20 +292,19 @@ SCARLET_INITIAL_PL1 = 25.0      # SCARLET_PL1MAX
 SCARLET_INITIAL_PL2 = 64.0      # SCARLET_PL2MAX
 SCARLET_IPS_MAX = 1e10
 SCARLET_IPS_IDLE = 47e6
-class StateScarlet(PlatformState):
-    def __init__(self, pl1=0.0, pl2=0.0, power=0.0, tj=0.0, tskin=0.0, ewma=0.0,ips_mean=0):
-        super(StateScarlet, self).__init__(pl1, pl2, power, tj, tskin, ewma,ips_mean)
-        self.pl1 = pl1
-        self.pl2 = pl2
-        self.power = power
-        self.tj = tj
-        self.tskin = tskin
-        self.ewma = ewma
-        self.ips_mean = ips_mean
 
-    def __repr__(self):
-        return 'State(pl1={}, pl2={}, power={}, tj={}, tskin={}, ewma={},ips_mean={})'. \
-            format(self.pl1, self.pl2, self.power, self.tj, self.tskin, self.ewma, self.ips_mean)
+@dataclass
+class StateScarlet:
+    # add sensors specific to scarlet (that are not common to all platforms)
+    pl1 : float = SCARLET_INITIAL_PL1
+    pl2 : float = SCARLET_INITIAL_PL2
+    power : float = IDLE_POWER
+    tj : float = SCARLET_TJIDLE
+    tskin : float = SCARLET_TSKINIDLE
+    tmem : float = SCARLET_TMEMIDLE
+    ewma : float = SCARLET_INITIAL_PL1-IDLE_POWER
+    ips_mean : float = SCARLET_IPS_IDLE
+
 
 
 class Scarlet(Platform):
@@ -397,6 +366,28 @@ class Scarlet(Platform):
         ewma = self.state.ewma / self.state.pl1
         ips_mean = self.state.ips_mean / self.params.ips_max
         return StateScarlet(pl1, pl2, power, tj, tskin, ewma,ips_mean)
+
+    def consume_power(self, power_consumed,wl_name):
+        # update ewma
+        prev_power = self.state.power
+        self.state.power = power_consumed
+        # old ewma
+        # self.state.ewma = self.state.ewma + (1.0 / self.params.tau) * (self.state.power - self.state.ewma)
+        # new ewma
+        self.state.ewma = np.exp(-1.0/self.params.tau) * self.state.ewma + \
+                          (1-np.exp(-1.0 / self.params.tau)) * (self.state.pl1 - self.state.power)
+
+        # update thermal sensors
+        prev_tj = self.state.tj
+        # note : currently using the same model for all types of workloads.
+        # for better fit, use the corresponding workload parameters
+        self.state.tj = self.predict_tj(self.state.power, prev_tj, self.params.tj_max, self.params.p2tj[wl_name])
+        prev_tskin = self.state.tskin
+        self.state.tskin = self.predict_tskin(self.state.tj, prev_tj, prev_tskin, self.params.tskin_max,
+                                       self.params.tj2ts[wl_name])
+
+        self.state.ips_mean = self.predict_mean_ips(self.state.power,prev_power,self.state.ips_mean,self.params.p2ips[wl_name])
+
 
 #################################################
 # Billie specifics - to fill in like in scarlet
