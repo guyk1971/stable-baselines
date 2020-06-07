@@ -174,6 +174,11 @@ P2Tj = namedtuple("P2Tj", ['intercept', 'p_coef', 'tj_coef'])
 # ips[n] = intercept + p_coef * power[n] + pnm1_coef * power[n-1] + ipsnm1_coef * ips[n-1]
 P2ips = namedtuple("P2ips",['intercept','p_coef','pnm1_coef','ipsnm1_coef'])
 
+# tmem[n]= intercept + tj_coef * tj[n] + tjm1_coef * tj[n-1] + tmm1_coef * tmem[n-1]
+Tj2Tmem = namedtuple("Tj2Tmem", ['intercept', 'tj_coef', 'tjm1_coef', 'tmm1_coef'])
+
+
+
 
 class Platform:
     def __init__(self, platform_params):
@@ -254,6 +259,16 @@ Tj2TskinFactor = {'cb15': Tj2Tskin(0.6, 0.0056, 0.0085, 0.97),
                  'cooldown': Tj2Tskin(0.8, 0.0027, 0.012, 0.963),   # arbitrarily = cb15
                  'cb20': Tj2Tskin(0.596, 0.0024, 0.01, 0.97)}
 
+# train_data=[{'folders':['psvt_at-9_25_45_64-fixed_1','psvt_at-9_25_45_64-greedy_1',],
+#              'traces':[('cinebench',300),('cinebench',180),('cinebench',120),('cinebench',60),('cinebench',30),('cinebench',1),
+#                        ('cb20',300),('cb20',180),('cb20',120),('cb20',60),('cb20',30),('cb20',1)]}]
+# tmem[n]= intercept + tj_coef * tj[n] + tjm1_coef * tj[n-1] + tmm1_coef * tmem[n-1]
+# Tj2Tmem = namedtuple("Tj2Tmem", ['intercept', 'tj_coef', 'tjm1_coef', 'tmm1_coef'])
+
+Tj2TmemFactor = {'cb15': Tj2Tmem(0.1156, 0.0023, 0.01, 0.9836),
+                 'cooldown': Tj2Tmem(0.1156, 0.0023, 0.01, 0.9836),
+                 'cb20': Tj2Tmem(0.1156, 0.0023, 0.01, 0.9836)}
+
 
 # tj[n]= intercept + p_coef * power[n] + tj_coef * tj[n-1]
 # P2Tj = namedtuple("P2Tj", ['intercept', 'p_coef', 'tj_coef'])
@@ -273,8 +288,9 @@ Power2IPSmean = {'cb15':P2ips(-12500268.871777534, 8.04534221e+07, -7.10065226e+
 
 PlatformParamsScarlet = namedtuple("PlatformParamsScarlet", ['tdp', 'pl1_min','pl1_max', 'pl2_min', 'pl2_max',
                                                              'tj_idle', 'tj_max', 'tskin_idle','tskin_max',
+                                                             'tmem_idle','tmem_max',
                                                              'ips_idle','ips_max',
-                                                             'tskin_ofst', 'tau', 'p2tj', 'tj2ts','p2ips'])
+                                                             'tskin_ofst', 'tau', 'p2tj', 'tj2ts','p2ips','tj2tm'])
 
 SCARLET_TDP = 15.0
 SCARLET_PL1MAX = 64.0
@@ -284,8 +300,9 @@ SCARLET_PL2MIN = 30.0
 SCARLET_TJIDLE = 45.0
 SCARLET_TJMAX = 100.0
 SCARLET_TSKINIDLE=40.0
-SCARLET_TMEMIDLE=40.0
 SCARLET_TSKINMAX = 65.0
+SCARLET_TMEMIDLE=40.0
+SCARLET_TMEMMAX = 70.0
 SCARLET_TSKINOFST = 5.5
 SCARLET_TAU = 28.0
 SCARLET_INITIAL_PL1 = 25.0      # SCARLET_PL1MAX
@@ -311,6 +328,13 @@ class Scarlet(Platform):
     def __init__(self, platform_params):
         super(Scarlet, self).__init__(platform_params)
 
+    @staticmethod
+    def predict_tmem(curr_tj, prev_tj, prev_tmem, tmem_max, coefs: Tj2Tmem):
+        return np.minimum(
+            coefs.intercept + coefs.tj_coef * curr_tj + coefs.tjm1_coef * prev_tj + coefs.tmm1_coef * prev_tmem,
+            tmem_max)
+
+
     def _run_dtt(self, req_pl1, req_pl2):
         '''
         tries to apply the power levels requested by the policy.
@@ -330,6 +354,13 @@ class Scarlet(Platform):
             # thermal event. reduce act_pl1 to PL1_min
             act_pl1 = self.params.pl1_min
             clip_reason += (IAClipReason.Thermal_Event,)
+
+        if self.state.tmem >= self.params.tmem_max:
+            # thermal event. reduce act_pl1 to PL1_min
+            act_pl1 = self.params.pl1_min
+            clip_reason += (IAClipReason.Thermal_Event,)
+
+
         return act_pl1, act_pl2, clip_reason
 
     def _run_pcode(self, act_pl1, act_pl2):
@@ -349,10 +380,12 @@ class Scarlet(Platform):
         # note that ewma depends on the way it is calculated. currently set to IDLE_POWER.
         # with the new formula it should be SCARLET_INITIAL_PL1-IDLE_POWER
         self.state = StateScarlet(pl1=SCARLET_INITIAL_PL1, pl2=SCARLET_INITIAL_PL2, power=IDLE_POWER, tj=SCARLET_TJIDLE,
-                                  tskin=SCARLET_TSKINIDLE, ewma=(SCARLET_INITIAL_PL1-IDLE_POWER))
+                                  tskin=SCARLET_TSKINIDLE, tmem=SCARLET_TMEMIDLE,ewma=(SCARLET_INITIAL_PL1-IDLE_POWER),
+                                  ips_mean=SCARLET_IPS_IDLE)
 
         # inject some noise
         self.state.tj = np.abs(self.state.tj + np.random.randn())
+        self.state.tskin = np.abs(self.state.tskin + np.random.randn())
         self.state.tskin = np.abs(self.state.tskin + np.random.randn())
         self.state.power = np.abs(self.state.power + np.random.randn())
         return self.get_state()
@@ -388,6 +421,10 @@ class Scarlet(Platform):
 
         self.state.ips_mean = self.predict_mean_ips(self.state.power,prev_power,self.state.ips_mean,self.params.p2ips[wl_name])
 
+        prev_tmem = self.state.tmem
+        self.state.tmem = self.predict_tmem(self.state.tj,prev_tj,prev_tmem,self.params.tmem_max,self.params.tj2tm[wl_name])
+
+
 
 #################################################
 # Billie specifics - to fill in like in scarlet
@@ -407,10 +444,11 @@ PLATFORMS = {'Scarlet': Scarlet(PlatformParamsScarlet(tdp=SCARLET_TDP, pl1_min=S
                                                       pl2_min=SCARLET_PL2MIN, pl2_max=SCARLET_PL2MAX,
                                                       tj_idle=SCARLET_TJIDLE, tj_max=SCARLET_TJMAX,
                                                       tskin_idle=SCARLET_TSKINIDLE ,tskin_max=SCARLET_TSKINMAX,
+                                                      tmem_idle=SCARLET_TMEMIDLE, tmem_max=SCARLET_TMEMMAX,
                                                       ips_idle=SCARLET_IPS_IDLE,ips_max=SCARLET_IPS_MAX,
                                                       tskin_ofst=SCARLET_TSKINOFST, tau=SCARLET_TAU,
                                                       p2tj=Power2TjFactor, tj2ts=Tj2TskinFactor,
-                                                      p2ips=Power2IPSmean))}
+                                                      p2ips=Power2IPSmean,tj2tm=Tj2TmemFactor))}
 
 
 #############################################################################################
@@ -522,8 +560,8 @@ class DTTEnvSim(gym.Env):
         req_pl1 = min(req_pl1,req_pl2)
 
         # to test fixed values - for debug
-        # req_pl1=SCARLET_INITIAL_PL1
-        # req_pl2=SCARLET_INITIAL_PL2
+        req_pl1=SCARLET_INITIAL_PL1
+        req_pl2=SCARLET_INITIAL_PL2
 
         # assuming these levels are supported given system state,
         power_budget, ia_clip_reason = self.platform.get_power_budget(req_pl1, req_pl2)
@@ -591,21 +629,41 @@ def main():
     #                   ['cooldown'] * 150 + \
     #                   10*(['cb15']+['cooldown']*15)
 
-    workload_params = 10*(['cb15']+['cooldown']*60) +\
+    # workload_params = 10*(['cb15']+['cooldown']*60) +\
+    #                   ['cooldown'] * 150 + \
+    #                   10*(['cb20']+['cooldown']*60) + \
+    #                   ['cooldown'] * 150 + \
+    #                   10*(['cb15']+['cooldown']*45) + \
+    #                   ['cooldown'] * 150 + \
+    #                   10 * (['cb20'] + ['cooldown'] * 45) + \
+    #                   ['cooldown'] * 150 + \
+    #                   10 * (['cb15'] + ['cooldown'] * 30) + \
+    #                   ['cooldown'] * 150 + \
+    #                   10 * (['cb20'] + ['cooldown'] * 30) + \
+    #                   ['cooldown'] * 150 + \
+    #                   10 * (['cb15'] + ['cooldown'] * 15) + \
+    #                   ['cooldown'] * 150 + \
+    #                   10 * (['cb20'] + ['cooldown'] * 15)
+
+    workload_params = 10*(['cb20']+['cooldown']*150) +\
+                      ['cooldown'] * 150 + \
+                      10*(['cb20']+['cooldown']*90) + \
                       ['cooldown'] * 150 + \
                       10*(['cb20']+['cooldown']*60) + \
                       ['cooldown'] * 150 + \
-                      10*(['cb15']+['cooldown']*45) + \
+                      10 * (['cb20'] + ['cooldown'] * 15) + \
                       ['cooldown'] * 150 + \
-                      10 * (['cb20'] + ['cooldown'] * 45) + \
+                      10 * (['cb20'] + ['cooldown'] * 1) + \
                       ['cooldown'] * 150 + \
-                      10 * (['cb15'] + ['cooldown'] * 30) + \
+                      10 * (['cb15'] + ['cooldown'] * 150) + \
                       ['cooldown'] * 150 + \
-                      10 * (['cb20'] + ['cooldown'] * 30) + \
+                      10 * (['cb15'] + ['cooldown'] * 90) + \
+                      ['cooldown'] * 150 + \
+                      10 * (['cb15'] + ['cooldown'] * 60) + \
                       ['cooldown'] * 150 + \
                       10 * (['cb15'] + ['cooldown'] * 15) + \
                       ['cooldown'] * 150 + \
-                      10 * (['cb20'] + ['cooldown'] * 15)
+                      10 * (['cb15'] + ['cooldown'] * 1)
 
     env = DTTEnvSim(platform, workload_params=workload_params, norm_obs=False,
                     log_output=os.getcwd())
