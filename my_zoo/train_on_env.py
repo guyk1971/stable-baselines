@@ -227,13 +227,14 @@ def run_experiment(experiment_params):
                 if rank == 0:
                     logger.info("Saving to {}".format(save_path))
                     model.save(params_path)
+                    env.close()
                     # Save hyperparams
                     # note that in order to save as yaml I need to avoid using classes in the definition.
                     # e.g. CustomDQNPolicy will not work. I need to put a string and parse it later
                     with open(os.path.join(output_dir, 'config.yml'), 'w') as f:
                         yaml.dump(saved_hyperparams, f)
-
-                    if normalize:
+                    # check if need to save env normalization parameters
+                    if normalize and not isinstance(env,DTTEnvSim):
                         # Unwrap
                         if isinstance(env, VecFrameStack):
                             env = env.venv
@@ -245,8 +246,11 @@ def run_experiment(experiment_params):
         exp_agent_algo = algo
         exp_buf_filename = 'er_'+experiment_params.env_params.env_id+'_'+exp_agent_algo+'_'+str(experiment_params.expert_steps_to_record)
         exp_buf_filename = os.path.join(output_dir,exp_buf_filename)
+        if experiment_params.env_params.env_id=="DTTSim":   # if DTTSim, turn on esif logging
+            experiment_params.env_params.log_output=output_dir
+        exp_env = env_make(1, experiment_params.env_params, algo, seed)
         logger.info('Generating expert experience buffer with ' + exp_agent_algo)
-        _ = generate_experience_traj(model, save_path=exp_buf_filename, env=env,
+        _ = generate_experience_traj(model, save_path=exp_buf_filename, env=exp_env,
                                      n_timesteps_record=experiment_params.expert_steps_to_record)
 
     logger.info(title("completed experiment seed {}".format(seed),30))

@@ -38,15 +38,18 @@ class EnvParams:
 
 class DTTEnvSimParams(EnvParams):
     def __init__(self):
-        super(EnvParams, self).__init__()
+        super(DTTEnvSimParams, self).__init__()
         self.env_id = 'DTTSim'
-        self.workload = [BENCHMARKS['cb15'],BENCHMARKS['cooldown']]
-        self.platform = PLATFORMS['Scarlet']
-        self.norm_obs = True
-        self.log_output = None
+        self.episode_workloads = 5*(['cb15']+[('cooldown',1)]) + [('cooldown',600)] + 5*(['cb20']+[('cooldown',1)])
 
-#############################
-# Agents Defaults
+        # note: to create 10 iterations of the above for each episode, do :
+        # self.workload = 10*([BENCHMARKS['cb15']] + [BENCHMARKS['cooldown']] * 150)
+        self.platform = PLATFORMS['Scarlet']
+        self.log_output = None
+        self.full_reset = True
+        self.use_wrapper = False
+        self.wrapper_params = {'feature_extractor':None,'reward_calc':None,'n_frames':5,'norm_params_file':None}
+
 
 class AgentParams:
     def __init__(self):

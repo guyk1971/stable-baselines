@@ -146,7 +146,6 @@ from collections import namedtuple
 from enum import Enum
 from copy import copy
 from scipy.interpolate import interp1d
-
 IDLE_POWER = 1.0
 
 #########################################################################################
@@ -155,9 +154,35 @@ IDLE_POWER = 1.0
 BENCHMARKS = {'cb15': [(0, IDLE_POWER), (5, 45), (10, 45), (20, 30), (40, 30), (50, 28), (60, IDLE_POWER)],
               'cb20': [(0, IDLE_POWER), (10, 44), (13, 44), (20, 32), (35, 30), (45, 30), (46, 25), (200, 25),
                        (205, IDLE_POWER)],
-              'cooldown': [(0, IDLE_POWER), (1, IDLE_POWER)],# each cooldown = 2 sec of idle
+              'cooldown': [IDLE_POWER],  # cooldown is parsed differently.see below
               'bursty':[(0,IDLE_POWER),(2,55),(4,20),(5,IDLE_POWER)]}
 
+EPISODES = {'cb_long':  10 * (['cb15'] + [('cooldown',300)]) + [('cooldown',300)] + \
+                        10 * (['cb20']+[('cooldown',300)]) + [('cooldown',300)] + \
+                        10 * (['cb15'] + [('cooldown',180)]) + [('cooldown',300)] + \
+                        10 * (['cb20']+[('cooldown',180)]) + [('cooldown',300)] + \
+                        10 * (['cb15'] + [('cooldown',120)]) + [('cooldown',300)] + \
+                        10 * (['cb20']+[('cooldown',120)]) + [('cooldown',300)] + \
+                        10 * (['cb15'] + [('cooldown',60)]) + [('cooldown',300)] + \
+                        10 * (['cb20'] + [('cooldown',60)]) + [('cooldown',300)] + \
+                        10 * (['cb15'] + [('cooldown',30)]) + [('cooldown',300)] + \
+                        10 * (['cb20'] + [('cooldown',30)]) + [('cooldown',300)] + \
+                        10 * (['cb15'] + [('cooldown',1)]) + [('cooldown',300)] + \
+                        10 * (['cb20'] + [('cooldown',1)]) + [('cooldown',300)],
+            'cb15_1':   10 * (['cb15']+[('cooldown',1)]),
+            'cb15_300':   10 * (['cb15']+[('cooldown',300)]),
+            'cb20_300':   10 * (['cb20']+[('cooldown',300)]),
+            'cb15mr':   5 * (['cb15']+[('cooldown',1)]),
+            'cb20mr':   5 * (['cb20']+[('cooldown',1)]),
+            'cb15': ['cb15']+[('cooldown',1)],
+            'cb20': ['cb20']+[('cooldown',1)]
+            }
+
+
+WLScoreModel =  namedtuple("WLScoreModel", ['intercept', 'ips_coef'])
+WorkloadScoreModels = {'cb15': WLScoreModel(-47.65,2.367e-07),
+                       'cb20': WLScoreModel(-101.48,5.036e-07),
+                       'cooldown': WLScoreModel(0,0), 'bursty': WLScoreModel(0,0)}
 ##########################################################################################
 # Platforms definition
 
@@ -265,9 +290,9 @@ Tj2TskinFactor = {'cb15': Tj2Tskin(0.6, 0.0056, 0.0085, 0.97),
 # tmem[n]= intercept + tj_coef * tj[n] + tjm1_coef * tj[n-1] + tmm1_coef * tmem[n-1]
 # Tj2Tmem = namedtuple("Tj2Tmem", ['intercept', 'tj_coef', 'tjm1_coef', 'tmm1_coef'])
 
-Tj2TmemFactor = {'cb15': Tj2Tmem(0.1156, 0.0023, 0.01, 0.9836),
-                 'cooldown': Tj2Tmem(0.1156, 0.0023, 0.01, 0.9836),
-                 'cb20': Tj2Tmem(0.1156, 0.0023, 0.01, 0.9836)}
+Tj2TmemFactor = {'cb15': Tj2Tmem(0.1087, 0.0021, 0.01, 0.9836),
+                 'cooldown': Tj2Tmem(0.1087, 0.0021, 0.01, 0.9836),
+                 'cb20': Tj2Tmem(0.1087, 0.0021, 0.01, 0.9836)}
 
 
 # tj[n]= intercept + p_coef * power[n] + tj_coef * tj[n-1]
@@ -293,22 +318,23 @@ PlatformParamsScarlet = namedtuple("PlatformParamsScarlet", ['tdp', 'pl1_min','p
                                                              'tskin_ofst', 'tau', 'p2tj', 'tj2ts','p2ips','tj2tm'])
 
 SCARLET_TDP = 15.0
-SCARLET_PL1MAX = 64.0
+SCARLET_PL1MAX = 25.0
 SCARLET_PL1MIN = 9.0
 SCARLET_PL2MAX = 64.0
-SCARLET_PL2MIN = 30.0
+SCARLET_PL2MIN = 45.0
 SCARLET_TJIDLE = 45.0
 SCARLET_TJMAX = 100.0
-SCARLET_TSKINIDLE=40.0
+SCARLET_TSKINIDLE=35.0
 SCARLET_TSKINMAX = 65.0
-SCARLET_TMEMIDLE=40.0
-SCARLET_TMEMMAX = 70.0
-SCARLET_TSKINOFST = 5.5
+SCARLET_TMEMIDLE=38.0
+SCARLET_TMEMMAX = 72.0
+SCARLET_TSKINOFST = 5.0
 SCARLET_TAU = 28.0
 SCARLET_INITIAL_PL1 = 25.0      # SCARLET_PL1MAX
 SCARLET_INITIAL_PL2 = 64.0      # SCARLET_PL2MAX
 SCARLET_IPS_MAX = 1e10
 SCARLET_IPS_IDLE = 47e6
+SCARLET_TURBO_HYSTERESIS = 0.5
 
 @dataclass
 class StateScarlet:
@@ -327,6 +353,8 @@ class StateScarlet:
 class Scarlet(Platform):
     def __init__(self, platform_params):
         super(Scarlet, self).__init__(platform_params)
+        self.min_turbo_budget = 0
+        self.reset_state()
 
     @staticmethod
     def predict_tmem(curr_tj, prev_tj, prev_tmem, tmem_max, coefs: Tj2Tmem):
@@ -366,11 +394,14 @@ class Scarlet(Platform):
     def _run_pcode(self, act_pl1, act_pl2):
         # the following depends on the way we calculate ewma
         clip_reason = ()
-        power_budget = self.state.pl2
+        power_budget = act_pl2
         # if self.state.ewma >= act_pl1:   # old calculation
-        if self.state.ewma <= 0:    # new calculation
+        if self.state.ewma <= self.min_turbo_budget:    # new calculation
             clip_reason += (IAClipReason.Max_Turbo_Limit,)
-            power_budget = self.state.pl1
+            power_budget = act_pl1
+            self.min_turbo_budget = SCARLET_TURBO_HYSTERESIS
+        else:
+            self.min_turbo_budget = 0
         return power_budget, clip_reason
 
     def reset_state(self):
@@ -396,9 +427,10 @@ class Scarlet(Platform):
         power = (self.state.power - self.params.pl1_min) / (self.params.pl2_max - self.params.pl2_min)
         tj = (self.state.tj - self.params.tj_idle) / (self.params.tj_max-self.params.tj_idle)
         tskin = (self.state.tskin - self.params.tskin_idle) / (self.params.tskin_max - self.params.tskin_idle)
+        tmem = (self.state.tmem - self.params.tmem_idle) / (self.params.tmem_max - self.params.tmem_idle)
         ewma = self.state.ewma / self.state.pl1
         ips_mean = self.state.ips_mean / self.params.ips_max
-        return StateScarlet(pl1, pl2, power, tj, tskin, ewma,ips_mean)
+        return StateScarlet(pl1, pl2, power, tj, tskin, tmem, ewma,ips_mean)
 
     def consume_power(self, power_consumed,wl_name):
         # update ewma
@@ -448,7 +480,19 @@ PLATFORMS = {'Scarlet': Scarlet(PlatformParamsScarlet(tdp=SCARLET_TDP, pl1_min=S
                                                       ips_idle=SCARLET_IPS_IDLE,ips_max=SCARLET_IPS_MAX,
                                                       tskin_ofst=SCARLET_TSKINOFST, tau=SCARLET_TAU,
                                                       p2tj=Power2TjFactor, tj2ts=Tj2TskinFactor,
-                                                      p2ips=Power2IPSmean,tj2tm=Tj2TmemFactor))}
+                                                      p2ips=Power2IPSmean,tj2tm=Tj2TmemFactor)),
+             # ScarletX : enhanced platform where pl1_max = PL2MAX
+             'ScarletX': Scarlet(PlatformParamsScarlet(tdp=SCARLET_TDP, pl1_min=SCARLET_PL1MIN, pl1_max=SCARLET_PL2MAX,
+                                                      pl2_min=SCARLET_PL2MIN, pl2_max=SCARLET_PL2MAX,
+                                                      tj_idle=SCARLET_TJIDLE, tj_max=SCARLET_TJMAX,
+                                                      tskin_idle=SCARLET_TSKINIDLE, tskin_max=SCARLET_TSKINMAX,
+                                                      tmem_idle=SCARLET_TMEMIDLE, tmem_max=SCARLET_TMEMMAX,
+                                                      ips_idle=SCARLET_IPS_IDLE, ips_max=SCARLET_IPS_MAX,
+                                                      tskin_ofst=SCARLET_TSKINOFST, tau=SCARLET_TAU,
+                                                      p2tj=Power2TjFactor, tj2ts=Tj2TskinFactor,
+                                                      p2ips=Power2IPSmean, tj2tm=Tj2TmemFactor))}
+
+
 
 
 #############################################################################################
@@ -464,11 +508,11 @@ class DTTEnvSim(gym.Env):
            3: (-0.5, 0), 4: (0, 0), 5: (0.5, 0),
            6: (-0.5, 0.5), 7: (0, 0.5), 8: (0.5, 0.5)}
 
-    def __init__(self, platform, workload_params, norm_obs=False, full_reset=True, log_output=None):
+    def __init__(self, platform, episode_workloads, norm_obs=False, full_reset=True, fixed_pl=None,
+                 calc_reward_fn=None,log_output=None):
         super(DTTEnvSim, self).__init__()
-
         self.platform = platform
-        self.workload_params = workload_params
+        self.workload_params = episode_workloads
         self.state = self.platform.reset_state()  # assuming not normalized state as default
         # the observation space include obs_dim float values
         self.obs_dim = len(self.state.__dict__.keys())
@@ -479,7 +523,7 @@ class DTTEnvSim(gym.Env):
         self.log_output = log_output
         if self.log_output is not None:
             self.log_output = os.path.join(self.log_output, 'DTTSim_esif.csv')
-            self.esif_cols = ['timestamp'] + list(self.state.__dict__.keys()) + ['Clip']
+            self.esif_cols = ['timestamp'] + list(self.state.__dict__.keys()) + ['Clip','Episode_Scores']
             self.out_df = pd.DataFrame(columns=self.esif_cols)
             self.tsdf = pd.DataFrame(columns=self.esif_cols)  # include a single timestep
 
@@ -492,14 +536,29 @@ class DTTEnvSim(gym.Env):
         # this can be described both by Discrete and Box space
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float32)
         self.max_path_length = np.inf
-        self.full_reset = full_reset
+        self.full_reset = full_reset    # whether to reset the platform state or just the workload stack
+        self.mean_ips_during_workload = []      # collect ips to infer the score
+        self.fixed_pl = fixed_pl
+        self.calc_reward_fn = calc_reward_fn
 
     def get_state(self):
         state = self.platform.get_state(norm=self.norm_obs).__dict__.values()
         return np.array([s for s in state])
 
+    def _predict_score(self):
+        coefs = WorkloadScoreModels[self.wip_name]
+        mean_ips = np.mean(self.mean_ips_during_workload)
+        score = round(coefs.intercept + coefs.ips_coef * mean_ips,2)
+        # print(f'predicted score for {self.wip_name} : {score}')
+        return score
+
     def _pop_workload(self):
+        # calc the score of the recently completed workload
+        if self.wip_name and self.wip_name != 'cooldown':
+            self.last_score = self._predict_score()
+            self.workload_scores.append(self.last_score)
         next_wl = self.workload_stack.pop(0)
+        self.mean_ips_during_workload = []
         self.wip_name, self.wip_queue = next_wl.popitem()
 
     def reset(self):
@@ -509,30 +568,43 @@ class DTTEnvSim(gym.Env):
         """
         self.step_idx = 0
         # reset the workload
-        # fill in the queue of steps to perform. each includes the power it requires
-
-        # queue = []
-        # self.remaining_workloads_in_episode = self.workload_params
-        # for wl in self.remaining_workloads_in_episode:
-        #     x = [c[0] for c in wl]
-        #     y = [c[1] for c in wl]
-        #     f = interp1d(x, y)
-        #     queue.append(f(range(x[-1] + 1)))
-        # self.queue = [e for s in queue for e in s]
-
         self.workload_stack = []
+        self.workload_scores = []
         for wl_name in self.workload_params:
-            wl=BENCHMARKS[wl_name]
-            x = [c[0] for c in wl]
-            y = [c[1] for c in wl]
-            f = interp1d(x, y)
-            self.workload_stack.append({wl_name:list(f(range(x[-1] + 1)))})
+            if 'cooldown' in wl_name:
+                wlq = BENCHMARKS['cooldown']*wl_name[1]
+                wln = 'cooldown'
+            else:
+                wl=BENCHMARKS[wl_name]
+                x = [c[0] for c in wl]
+                y = [c[1] for c in wl]
+                f = interp1d(x, y)
+                wlq = list(f(range(x[-1] + 1)))
+                wln = wl_name
+            self.workload_stack.append({wln:wlq})
         self.wip_queue = []
+        self.wip_name = None
+        self.last_score = np.nan
         self.req_power_for_curr_step = 0
         # reset the platform if full reset
         if self.full_reset:
             self.state = self.platform.reset_state()  # get unnormalized state from the platform
         return self.get_state()  # get normalized state if needed (self.norm_obs=True)
+
+    def get_scores(self):
+        return self.workload_scores
+
+    def _calc_reward(self):
+        if self.calc_reward_fn:
+            reward = self.calc_reward_fn(self.platform.params,self.state)
+        else:
+            # calc reward - default. can be overriden by wrapper
+            reward = (self.state.pl1 - self.platform.params.pl1_max) + (
+                        self.state.pl2 - self.platform.params.pl2_max) - 1
+            if self.state.tskin > (self.platform.params.tskin_max - self.platform.params.tskin_ofst):
+                reward -= 1000
+        return reward
+
 
     def _is_done(self):
         return (len(self.workload_stack) == 0) and (len(self.wip_queue) == 0) and (self.req_power_for_curr_step == 0)
@@ -543,7 +615,8 @@ class DTTEnvSim(gym.Env):
         # i.e. we assume the action was provided at time step n, so we move the system to time step n+1 and
         # return the impact on the system assuming the action was performed during the nth time step and we return
         # the state of the system and the reward at the end of this period (thus they are at time step n+1)
-        if (not (isinstance(action, np.int64) or isinstance(action, int))  or (action < 0) or (action >= self.action_space.n)):
+        if (not (isinstance(action, np.int64) or isinstance(action, int) or isinstance(action, np.int32))
+                or (action < 0) or (action >= self.action_space.n)):
             raise ValueError("Received invalid action={} which is not part of the action space".format(action))
 
         # add the next power to the buffer of compute we need to perform
@@ -560,8 +633,9 @@ class DTTEnvSim(gym.Env):
         req_pl1 = min(req_pl1,req_pl2)
 
         # to test fixed values - for debug
-        req_pl1=SCARLET_INITIAL_PL1
-        req_pl2=SCARLET_INITIAL_PL2
+        if self.fixed_pl:
+            req_pl1=self.fixed_pl[0]
+            req_pl2=self.fixed_pl[1]
 
         # assuming these levels are supported given system state,
         power_budget, ia_clip_reason = self.platform.get_power_budget(req_pl1, req_pl2)
@@ -581,21 +655,26 @@ class DTTEnvSim(gym.Env):
         self.req_power_for_curr_step -= workload_power_consumed
 
         self.state = self.platform.get_state()
+        self.mean_ips_during_workload.append(self.state.ips_mean)
 
-        # calc reward - default. can be overriden by wrapper
-        reward = (self.state.pl1 - self.platform.params.pl1_max) + (self.state.pl2 - self.platform.params.pl2_max) - 1
-        if self.state.tskin > (self.platform.params.tskin_max - self.platform.params.tskin_ofst):
-            reward -= 1000
-
+        reward = self._calc_reward()
         done = self._is_done()
         # Optionally we can pass additional info, we are not using that for now
         info = {'IAClipReason': ia_clip_reason}
+        # scores = self.workload_scores if done else np.nan
+
         if self.log_output:
-            self.tsdf.loc[0] = [self.step_idx] + list(self.state.__dict__.values()) + [info['IAClipReason']]
+            self.tsdf.loc[0] = [self.step_idx] + list(self.state.__dict__.values()) + [info['IAClipReason']] + \
+                               [self.last_score]
             self.out_df = self.out_df.append(self.tsdf)
         self.step_idx += 1
-
+        self.last_score = np.nan
         return self.get_state(), reward, done, info
+
+    def set_episode_workloads(self,episode_workloads):
+        self.workload_params=episode_workloads
+        self.reset()
+
 
     def render(self, mode='console'):
         if mode != 'console':
@@ -609,64 +688,49 @@ class DTTEnvSim(gym.Env):
 
 # endregion
 
+
+###########################################################################################################
+# Policies
+
+def random_policy(params=None,state=None,dPL2act=None):
+    act = np.random.randint(0, 9)
+    return act
+
+def greedy_policy(params,state,dPL2act):
+    a1 = 0.5 if state[0] < params.pl1_max else 0
+    a2 = 0.5 if state[1] < params.pl2_max else 0
+    return dPL2act[(a1, a2)]
+
+def fixed_policy(pl1,pl2,params,state,dPL2act):
+    a1 = 0.5 * np.sign(pl1-state[0])
+    a2 = 0.5 * np.sign(pl2-state[1])
+    return dPL2act[(a1, a2)]
+
+POLICIES = {'r': random_policy,'g':greedy_policy,'f':fixed_policy}
+
+
 def main():
     platform = PLATFORMS['Scarlet']
 
-    # workload_params = 20*([BENCHMARKS['cb15']]+[BENCHMARKS['cooldown']]*30+\
-    #                   [BENCHMARKS['bursty']]+[BENCHMARKS['cooldown']]*10+ \
-    #                   [BENCHMARKS['bursty']] + [BENCHMARKS['cooldown']] * 5 + \
-    #                   [BENCHMARKS['bursty']] + [BENCHMARKS['cooldown']] * 5)
 
     # to create the following experiment: (benchmark num_runs sec_between_runs)
     # time between iterations : 300 sec
-    # - cb15 10 120  --> 10*(['cb15']+['cooldown']*60)
-    # - cb15 10 60   --> 10*(['cb15']+['cooldown']*30)
-    # - cb15 10 30   --> 10*(['cb15']+['cooldown']*15)
+    # - cb15 10 120  --> 10*(['cb15']+[('cooldown',120)])
+    # - cb15 10 60   --> 10*(['cb15']+[('cooldown',60)])
+    # - cb15 10 30   --> 10*(['cb15']+[('cooldown',30)])
     # do the following:
-    # workload_params = 10*(['cb15']+['cooldown']*60) +\
-    #                   ['cooldown'] * 150 + \
-    #                   10*(['cb15']+['cooldown']*30) + \
-    #                   ['cooldown'] * 150 + \
-    #                   10*(['cb15']+['cooldown']*15)
+    # episode_workloads = 10*(['cb15']+[('cooldown',120)]) +\
+    #                     [('cooldown',300)] + \
+    #                     10*(['cb15']+[('cooldown',60)]) + \
+    #                     [('cooldown',300)] + \
+    #                     10*(['cb15']+[('cooldown',30)])
 
-    # workload_params = 10*(['cb15']+['cooldown']*60) +\
-    #                   ['cooldown'] * 150 + \
-    #                   10*(['cb20']+['cooldown']*60) + \
-    #                   ['cooldown'] * 150 + \
-    #                   10*(['cb15']+['cooldown']*45) + \
-    #                   ['cooldown'] * 150 + \
-    #                   10 * (['cb20'] + ['cooldown'] * 45) + \
-    #                   ['cooldown'] * 150 + \
-    #                   10 * (['cb15'] + ['cooldown'] * 30) + \
-    #                   ['cooldown'] * 150 + \
-    #                   10 * (['cb20'] + ['cooldown'] * 30) + \
-    #                   ['cooldown'] * 150 + \
-    #                   10 * (['cb15'] + ['cooldown'] * 15) + \
-    #                   ['cooldown'] * 150 + \
-    #                   10 * (['cb20'] + ['cooldown'] * 15)
-
-    workload_params = 10*(['cb20']+['cooldown']*150) +\
-                      ['cooldown'] * 150 + \
-                      10*(['cb20']+['cooldown']*90) + \
-                      ['cooldown'] * 150 + \
-                      10*(['cb20']+['cooldown']*60) + \
-                      ['cooldown'] * 150 + \
-                      10 * (['cb20'] + ['cooldown'] * 15) + \
-                      ['cooldown'] * 150 + \
-                      10 * (['cb20'] + ['cooldown'] * 1) + \
-                      ['cooldown'] * 150 + \
-                      10 * (['cb15'] + ['cooldown'] * 150) + \
-                      ['cooldown'] * 150 + \
-                      10 * (['cb15'] + ['cooldown'] * 90) + \
-                      ['cooldown'] * 150 + \
-                      10 * (['cb15'] + ['cooldown'] * 60) + \
-                      ['cooldown'] * 150 + \
-                      10 * (['cb15'] + ['cooldown'] * 15) + \
-                      ['cooldown'] * 150 + \
-                      10 * (['cb15'] + ['cooldown'] * 1)
-
-    env = DTTEnvSim(platform, workload_params=workload_params, norm_obs=False,
-                    log_output=os.getcwd())
+    # the following is worth 33020 sec = 9H:10M:20S - runs 260 sec on the server (single core)
+    episode_workloads = EPISODES['cb_long']
+    env = DTTEnvSim(platform, episode_workloads=episode_workloads, norm_obs=False,
+                    # fixed_pl=(SCARLET_INITIAL_PL1,SCARLET_INITIAL_PL2),
+                    log_output=os.path.join(os.getcwd(),'tmp'))
+    policy = POLICIES['g']  # (f)ixed, (g)reedy, or (r)andom
     dPL2act = {v: np.int64(k) for k, v in env.dPL.items()}
     obs = env.reset()
     done = False
@@ -674,31 +738,29 @@ def main():
     out_df = pd.DataFrame(columns=esif_cols)
     tsdf = pd.DataFrame(columns=esif_cols)
     ts = 0
-    a1 = 0
-    a2 = 0  # start with no change
     total_rew = 0
     while not done:
-        act = dPL2act[(a1, a2)]
+        act = policy(platform.params,obs,dPL2act)
         # act = np.random.randint(0,9)    # for random policy
         obs, rew, done, info = env.step(act)
         total_rew += rew
         # obs = ['pl1','pl2','power','tj','tskin','ewma']
         # policy : as long as we're below the max value, aim to increase
-        a1 = 0.5 if obs[0] < env.platform.params.pl1_max else 0
-        a2 = 0.5 if obs[1] < env.platform.params.pl2_max else 0
         tsdf.loc[0] = [ts] + list(obs) + [info['IAClipReason']]
         out_df = out_df.append(tsdf)
         ts += 1
+    scores = env.get_scores()
     env.close()
-    out_df['ips_mean']=out_df['ips_mean']/1e8
-    print('session completed. total reward: {}'.format(total_rew))
+    print(f'session completed. total reward: {total_rew}, average score:{np.mean(scores)}')
+    print(f'episode scores: {scores}')
+    out_df['ips_mean'] = out_df['ips_mean'] / 1e8
     out_df.set_index('timestamp', inplace=True)
-    out_df.to_csv('sim_esif.csv')
+    os.makedirs('./tmp',exist_ok=True)
+    out_df.to_csv('./tmp/sim_esif.csv')
     out_df.loc[:, esif_cols[1:-1]].plot(figsize=(8, 4), grid=True)
     plt.show()
 
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-
     main()

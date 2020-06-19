@@ -16,12 +16,9 @@ proj_root=os.path.dirname(os.path.dirname(path_to_curr_file))
 if proj_root not in sys.path:
     sys.path.insert(0,proj_root)
 ############################
-
-
 import time
 import argparse
 import importlib
-# from functools import partial
 from collections import OrderedDict
 import gym
 import numpy as np

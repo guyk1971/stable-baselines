@@ -366,14 +366,7 @@ class DQN(OffPolicyRLModel):
                 # Retrieve unnormalized observation for saving into the buffer
                 # Store only the unnormalized version
                 if self._vec_normalize_env is not None:
-                    new_obs_ = self._vec_normalize_env.get_original_obs().squeeze()
-                    reward_ = self._vec_normalize_env.get_original_reward().squeeze()
-                else:
-                    # Avoid changing the original ones
-                    obs_, new_obs_, reward_ = obs, new_obs, rew
-                # Store transition in the replay buffer.
-                self.replay_buffer_add(obs_, action, reward_, new_obs_, done, info)
-                obs = new_obs
+                    obs_ = self._vec_normalize_env.get_original_obs().squeeze()
 
                 for _ in tqdm(range(total_timesteps)):
                     # Take action and update exploration to the newest value
@@ -594,7 +587,8 @@ class DQN(OffPolicyRLModel):
             "n_cpu_tf_sess": self.n_cpu_tf_sess,
             "seed": self.seed,
             "_vectorize_action": self._vectorize_action,
-            "policy_kwargs": self.policy_kwargs
+            "policy_kwargs": self.policy_kwargs,
+            "policy_name": self.__class__.__name__+self.policy.__name__
         }
 
         params_to_save = self.get_parameters()

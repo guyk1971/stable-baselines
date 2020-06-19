@@ -1,0 +1,282 @@
+import os
+import numpy as np
+import pickle
+from tqdm import tqdm
+import argparse
+from my_zoo.deploy_stbl_tf import load_stbl_model
+
+def feature_extraction_scarlet(data, **params):
+    # declare feature list
+    feature_of_dict = {'power_to_curpl1_mean':None,'power_to_curpl1_std':None,'power_to_maxpl1_mean':None,
+                       'power_to_maxpl1_std':None,'pl1_to_pl2':None, 'ips_mean_mean':None, 'ips_mean_std':None,
+                       'tskin_slope':None,'tj_slope':None,'tmem_slope':None,'power_to_curpl1':None, 'power_to_maxpl1':None,
+                       'pl1':None,'pl2':None,'tskin':None,'tj':None,'tmem':None,'ips_mean':None,'torbu':None}
+    if data is not None:
+        # parse params
+        pl1_max = params['pl1_max']
+        pl1_min = params['pl1_min']
+        pl2_max = params['pl2_max']
+        pl2_min = params['pl2_min']
+        tskin_max = params['tskin_max']
+        tskin_idle = params['tskin_idle']
+        tj_max = params['tj_max']
+        tj_idle = params['tj_idle']
+        tmem_max = params['tmem_max']
+        tmem_idle = params['tmem_idle']
+        ips_max = params['ips_max']
+        ewma_power = params['ewma_power']
+        normlized_params = params.get('normlized_params', None)
+
+        # extract features
+        n_frames = len(data['POWER'])
+        feature_of_dict['power_to_curpl1'] = [data['POWER'][i] / data['MMIO_PL1'][i] for i in range(n_frames)]
+        feature_of_dict['power_to_maxpl1'] = [data['POWER'][i] / pl1_max for i in range(n_frames)]
+        # feature_of_dict['PKG_C0'] = [data['PKG_C0'][i] for i in range(n_frames)]
+        feature_of_dict['pl1'] = [(data['MMIO_PL1'][i] - pl1_min) / (pl1_max - pl1_min) for i in range(n_frames)]
+        feature_of_dict['pl2'] = [(data['MMIO_PL2'][i] - pl2_min) / (pl2_max - pl2_min) for i in range(n_frames)]
+        feature_of_dict['tskin'] = [(data['tskin'][i] - tskin_idle) / (tskin_max - tskin_idle) for i in
+                                    range(n_frames)]
+        feature_of_dict['tj'] = [(data['tj'][i] - tj_idle) / (tj_max - tj_idle) for i in range(n_frames)]
+        feature_of_dict['tmem'] = [(data['tmem'][i] - tmem_idle) / (tmem_max - tmem_idle) for i in range(n_frames)]
+
+
+
+        ###################################
+        # feature start
+        # feature_of_dict['action_pl1'] = data['MMIO_PL1'][-1] - data['MMIO_PL1'][-2]
+        # feature_of_dict['action_pl2'] = data['MMIO_PL1'][-1] - data['MMIO_PL1'][-2]
+
+        feature_of_dict['power_to_curpl1_mean'] = np.mean(feature_of_dict['power_to_curpl1'])
+        feature_of_dict['power_to_curpl1_std'] = np.std(feature_of_dict['power_to_curpl1'])
+        feature_of_dict['power_to_maxpl1_mean'] = np.mean(feature_of_dict['power_to_maxpl1'])
+        feature_of_dict['power_to_maxpl1_std'] = np.std(feature_of_dict['power_to_maxpl1'])
+
+        feature_of_dict['pl1_to_pl2'] = (data['MMIO_PL1'][-1] - pl1_min) / (data['MMIO_PL2'][-1] - pl1_min)
+
+        # feature_of_dict['PKG_C0_mean'] = np.mean(feature_of_dict['PKG_C0'])
+        # feature_of_dict['PKG_C0_std'] = np.std(feature_of_dict['PKG_C0'])
+
+        # feature_of_dict['ips_max_mean'] = np.mean(data['ips_max'])
+        # feature_of_dict['ips_max_std'] = np.std(data['ips_max'])
+
+        # feature_of_dict['ips_min_mean'] = np.mean(data['ips_min'])
+        # feature_of_dict['ips_min_std'] = np.std(data['ips_min'])
+
+        feature_of_dict['ips_mean_mean'] = np.mean(data['ips_mean'])/ips_max
+        feature_of_dict['ips_mean_std'] = np.std(data['ips_mean'])/ips_max      # need ^2 ? looks like not.
+
+        # feature_of_dict['ips_std_mean'] = np.mean(data['ips_std'])
+        # feature_of_dict['ips_std_std'] = np.std(data['ips_std'])
+
+        feature_of_dict['tskin_slope'] = (feature_of_dict['tskin'][-1] - feature_of_dict['tskin'][0]) / n_frames
+        feature_of_dict['tj_slope'] = (feature_of_dict['tj'][-1] - feature_of_dict['tj'][0]) / n_frames
+        feature_of_dict['tmem_slope'] = (feature_of_dict['tmem'][-1] - feature_of_dict['tmem'][0]) / n_frames
+
+
+        feature_of_dict['power_to_curpl1'] = feature_of_dict['power_to_curpl1'][-1]
+        feature_of_dict['power_to_maxpl1'] = feature_of_dict['power_to_maxpl1'][-1]
+        # feature_of_dict['PKG_C0'] = feature_of_dict['PKG_C0'][-1]
+        feature_of_dict['pl1'] = feature_of_dict['pl1'][-1]
+        feature_of_dict['pl2'] = feature_of_dict['pl2'][-1]
+        feature_of_dict['tskin'] = feature_of_dict['tskin'][-1]
+        feature_of_dict['tj'] = feature_of_dict['tj'][-1]
+        feature_of_dict['tmem'] = feature_of_dict['tmem'][-1]
+
+        # feature_of_dict['ips_max'] = data['ips_max'][-1]
+        # feature_of_dict['ips_min'] = data['ips_min'][-1]
+        feature_of_dict['ips_mean'] = data['ips_mean'][-1]/ips_max
+        # feature_of_dict['ips_std'] = data['ips_std'][-1]
+
+        feature_of_dict['torbu'] = ewma_power / pl1_max
+        ################################## 17 features ######################################
+        # z-normalizing with train parameters (assuming gaussian distribution of each of the features)
+        if normlized_params:
+            for feature in feature_of_dict.keys():
+                feature_of_dict[feature] = (feature_of_dict[feature] - normlized_params[feature]['mean']) / \
+                                           normlized_params[feature]['std']
+
+    return feature_of_dict
+
+
+def parse_cmd_line():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-n','--n_episodes', help='number of episodes', default=30,type=int)
+    parser.add_argument('-b', '--benchmark', help='benchmark to run', type=str, default='cb20mr')
+    parser.add_argument('--pf', help='fixed policy', type=int, nargs=2, action='append')
+    parser.add_argument('--pg', help='greedy policy', type=bool)
+    parser.add_argument('--pm', help='load policy model from path', type=str)
+    parser.add_argument('-r', '--reward', help='reward function',default=0, type=int)
+    parser.add_argument('--platform', help='type of platform: Scarlet', default='Scarlet', type=str)
+    args = parser.parse_args()
+    return args
+
+
+def sim_calc_power_limits():
+    args = parse_cmd_line()
+    platform = PLATFORMS[args.platform]
+    n_episodes=args.n_episodes
+    episode_workloads = EPISODES[args.benchmark]
+    env = DTTEnvSim(platform, episode_workloads=episode_workloads, norm_obs=False)
+    env = DTTStateRewardWrapper(env=env,feature_extractor=feature_extraction_scarlet,reward_calc=reward_0,n_frames=5)
+    dPL2act = {v: np.int64(k) for k, v in env.dPL.items()}
+    feat_cols = list(feature_extraction_scarlet(None))
+    # define the policy
+    policies = {'random':random_policy}
+    policy=random_policy
+    if args.pm and os.path.exists(args.pm):  # assuming args.pm is the path to where the agent_params.py and model_params.zip are
+        # load model from file
+        policy = load_stbl_model(args.pm,env)
+        print(f'loaded policy from {args.pm}')
+    else:
+        print('using random policy')
+    tsdf = pd.DataFrame(columns=feat_cols)
+    feat_csv = os.path.join(os.getcwd(),'tmp','sim_features.csv')
+    tsdf.to_csv(feat_csv,index=False)
+    for ei in tqdm(range(n_episodes)):
+        obs = env.reset()
+        done = False
+        out_df = pd.DataFrame(columns=feat_cols)
+        ts = 0
+        total_rew = 0
+        while not done:
+            act = policy(obs)
+            obs, rew, done, info = env.step(act)
+            total_rew += rew
+            # obs = ['pl1','pl2','power','tj','tskin','tmem','ewma']
+            # policy : as long as we're below the max value, aim to increase
+            tsdf.loc[0] = list(obs)
+            out_df = out_df.append(tsdf)
+            ts += 1
+        scores = env.get_scores()
+        avg_score = round(np.mean(scores), 2)
+        print(f'episode {ei} completed. total reward: {round(total_rew, 2)}, scores:{scores}')
+        out_df.to_csv(feat_csv, mode='a', header=False, index=False)
+    env.close()
+
+
+
+
+
+# if we run this script as main file, we'll run on the simulated environment.
+# else, we're running on the real platform
+
+
+if __name__ == '__main__':
+    import sys
+    path_to_curr_file = os.path.realpath(__file__)
+    proj_root = os.path.dirname(os.path.dirname(os.path.dirname(path_to_curr_file)))
+    print(proj_root)
+    if proj_root not in sys.path:
+        sys.path.insert(0, proj_root)
+    from my_zoo.my_envs import PLATFORMS,DTTEnvSim,EPISODES,random_policy
+    from my_zoo.dttsim_wrappers import DTTStateRewardWrapper,reward_0,reward_3
+    import pandas as pd
+    os.makedirs('tmp', exist_ok=True)
+    sim_calc_power_limits()
+else:
+    import configparser
+    import pickle
+    import os
+    g = {'index_num': 0, 'POWER': [], 'PKG_C0': [], 'tj': [], 'tskin': [],
+         'ips_mean': [], 'ips_std': [], 'ips_max': [], 'ips_min': [],
+         'MMIO_PL1': [], 'MMIO_PL2': []}
+    config = configparser.ConfigParser()
+    config.sections()
+    config.read(
+        r"C:\Users\awagner\OneDrive - Intel Corporation\Documents\GitHub\dtt_rl\deployment\calc_power_limit_versions\my_config_hyper_test.ini")
+    actor = load_model(
+        r"C:\Users\awagner\share\Data\MLA\DTT\results\stbl\Bobi_config_file-25-05-2020_17-45-29\1\Q_first9_reward2.h5")
+    file = open(
+        r"\\icfsv07a-cifs.iil.intel.com\itaa_mla_inbox1\ML-DTT2.0\reinforement_learning\data_collection\bobi\buffer\first9_reward2_normlized_params.pkl",
+        'rb')
+    normlized_params = pickle.load(file)
+    file.close()
+    my_version = 'RL_model'
+
+    pl1_min = int(config[my_version]['pl1_min'])
+    pl2_max = int(config[my_version]['pl2_max'])
+    pl1_max = int(config[my_version]['pl1_max'])
+    pl2_min = int(config[my_version]['pl2_min'])
+    tskin_max = int(config[my_version]['tskin_max'])
+    tskin_idle = int(config[my_version]['tskin_idle'])
+    tj_max = int(config[my_version]['tj_max'])
+    tj_idle = int(config[my_version]['tj_idle'])
+
+    epslion_of_choice = 0
+    ewma_power = 0
+    curr_pl1_pl2 = {'pl1': pl1_max, 'pl2': pl2_max}
+    Tau = 28
+    dPL2act = {v: np.int64(k) for k, v in env.dPL.items()}
+
+def calc_power_limits(features):
+    global g, pl1_max, pl1_min, tskin_max, tskin_idle, pl2_max, pl2_min, tj_max, tj_idle, ewma_power, normlized_params, TAU
+
+    g['POWER'].append(features['pkgPower'])
+    g['PKG_C0'].append(features['pkgC0'])
+    g['tj'].append(features['tj'] / 10.0 - 273.15)
+    g['tskin'].append(features['tskin'] / 10.0 - 273.15)
+    g['MMIO_PL1'].append(features['mmioPl1'])
+    g['MMIO_PL2'].append(features['mmioPl2'])
+
+    ewma_power = ewma_power * (np.exp(-1 / TAU)) + (1 - np.exp(-1 / TAU)) * (curr_pl1_pl2['pl1'] - features['pkgPower'])
+    cpus_delta = []
+    for cpu in range(8):
+        cpus_delta.append(features['instructions']['cpu' + str(cpu) + '_instructions_delta'])
+
+    g['ips_mean'].append(np.mean(cpus_delta))
+    g['ips_std'].append(np.std(cpus_delta))
+    g['ips_max'].append(np.max(cpus_delta))
+    g['ips_min'].append(np.min(cpus_delta))
+
+    choose_random_prob = np.random.binomial(1, epslion_of_choice)
+
+    if len(g['POWER']) < 6:
+        curr_pl1_pl2['pl1'] = pl1_max
+        curr_pl1_pl2['pl2'] = pl2_max
+        q_action = 4
+        my_features = 0
+        if len(g['POWER']) == 1:
+            ewma_power = (curr_pl1_pl2['pl1'] - features['pkgPower'])
+    else:
+
+        g['POWER'] = g['POWER'][1:]
+        g['PKG_C0'] = g['PKG_C0'][1:]
+        g['tj'] = g['tj'][1:]
+        g['tskin'] = g['tskin'][1:]
+        g['ips_mean'] = g['ips_mean'][1:]
+        g['ips_max'] = g['ips_max'][1:]
+        g['ips_min'] = g['ips_min'][1:]
+        g['ips_std'] = g['ips_std'][1:]
+        g['MMIO_PL1'] = g['MMIO_PL1'][1:]
+        g['MMIO_PL2'] = g['MMIO_PL2'][1:]
+
+        if choose_random_prob:
+            diff_action = num_to_action(np.random.randint(0, 9))
+
+        else:
+            my_features = feature_extraction(g, pl1_max, pl1_min, tskin_max, tskin_idle, pl2_max, pl2_min, tj_max,
+                                             tj_idle, ewma_power)
+            my_features = [my_features['state_feature_' + str(i)] for i in range(1, len(my_features) + 1)]
+            q_action = np.argmax(actor.predict(np.expand_dims(my_features, axis=0)))
+            diff_action = num_to_action(q_action)
+
+        curr_pl1_pl2['pl1'] += diff_action['diffp1']
+        curr_pl1_pl2['pl2'] += diff_action['diffp2']
+
+    if curr_pl1_pl2['pl2'] < pl2_min:
+        curr_pl1_pl2['pl2'] = pl2_min
+
+    if curr_pl1_pl2['pl2'] > pl2_max:
+        curr_pl1_pl2['pl2'] = pl2_max
+
+    if curr_pl1_pl2['pl1'] > curr_pl1_pl2['pl2']:
+        curr_pl1_pl2['pl1'] = curr_pl1_pl2['pl2']
+
+    if curr_pl1_pl2['pl1'] < pl1_min:
+        curr_pl1_pl2['pl1'] = pl1_min
+
+    pls = {'pl1': int(curr_pl1_pl2['pl1']), 'pl2': int(curr_pl1_pl2['pl2']),
+           'diff_action': q_action,
+           'my_features': my_features}
+
+    return pls

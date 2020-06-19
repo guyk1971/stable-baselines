@@ -34,6 +34,7 @@ from zoo.utils.noise import LinearNormalActionNoise
 
 from my_zoo.hyperparams.default_config import CC_ENVS
 from my_zoo.my_envs import L2PEnv,DTTEnvSim,DTTEnvReal
+from my_zoo.dttsim_wrappers import DTTStateRewardWrapper
 
 
 def get_create_env(algo,seed,env_params):
@@ -142,11 +143,15 @@ def parse_agent_params(hyperparams,n_actions,n_timesteps):
 
 def env_make(n_envs,env_params,algo,seed):
     env_id = env_params.env_id
-    logger.info('using {0} instances of {1} :'.format(n_envs, env_id))
+    logger.info(f'using {n_envs} instances of {env_id} :')
     if env_id=='L2P':
         env = L2PEnv()
     elif env_id=='DTTSim':
-        env = DTTEnvSim(platform=env_params.platform,workload=env_params.workload,norm_obs=env_params.norm_obs)
+        env = DTTEnvSim(platform=env_params.platform,episode_workloads=env_params.episode_workloads,norm_obs=env_params.norm_obs,
+                        full_reset=env_params.full_reset,log_output=env_params.log_output)
+        if env_params.use_wrapper:
+            logger.info('using DTTStateRewardWrapper')
+            env = DTTStateRewardWrapper(env,**env_params.wrapper_params)
     elif env_id=='DTTRealCSV':
         env = DTTEnvReal()
     else:       # for gym Classic Control (CC_ENV)

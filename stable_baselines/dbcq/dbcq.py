@@ -459,7 +459,8 @@ class DBCQ(OffPolicyRLModel):
             "n_cpu_tf_sess": self.n_cpu_tf_sess,
             "seed": self.seed,
             "_vectorize_action": self._vectorize_action,
-            "policy_kwargs": self.policy_kwargs
+            "policy_kwargs": self.policy_kwargs,
+            "policy_name": self.__class__.__name__ + self.policy.__name__
         }
 
         params_to_save = self.get_parameters()
