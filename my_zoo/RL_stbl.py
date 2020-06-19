@@ -3,7 +3,7 @@ import numpy as np
 import pickle
 from tqdm import tqdm
 import argparse
-from my_zoo.deploy_stbl_tf import load_stbl_model
+
 
 def feature_extraction_scarlet(data, **params):
     # declare feature list
@@ -164,12 +164,13 @@ def sim_calc_power_limits():
 if __name__ == '__main__':
     import sys
     path_to_curr_file = os.path.realpath(__file__)
-    proj_root = os.path.dirname(os.path.dirname(os.path.dirname(path_to_curr_file)))
+    proj_root = os.path.dirname(os.path.dirname(path_to_curr_file))
     print(proj_root)
     if proj_root not in sys.path:
         sys.path.insert(0, proj_root)
     from my_zoo.my_envs import PLATFORMS,DTTEnvSim,EPISODES,random_policy
     from my_zoo.dttsim_wrappers import DTTStateRewardWrapper,reward_0,reward_3
+    from my_zoo.deploy_stbl_tf import load_stbl_model
     import pandas as pd
     os.makedirs('tmp', exist_ok=True)
     sim_calc_power_limits()
@@ -238,7 +239,6 @@ def calc_power_limits(features):
         if len(g['POWER']) == 1:
             ewma_power = (curr_pl1_pl2['pl1'] - features['pkgPower'])
     else:
-
         g['POWER'] = g['POWER'][1:]
         g['PKG_C0'] = g['PKG_C0'][1:]
         g['tj'] = g['tj'][1:]
