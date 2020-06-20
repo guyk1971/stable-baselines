@@ -60,12 +60,12 @@ agent_params.policy_kwargs = {'layers': [64,32]}
 # Experiment                                             #
 ##########################################################
 experiment_params = ExperimentParams()
-experiment_params.n_timesteps = 2e6
-# experiment_params.n_timesteps = 1e5
+# experiment_params.n_timesteps = 2e6
+experiment_params.n_timesteps = 1e5
 experiment_params.env_params = env_params
 experiment_params.agent_params = agent_params
 experiment_params.expert_steps_to_record = 50000  # number of episodes to record into the experience buffer
-experiment_params.online_eval_freq = int(experiment_params.n_timesteps/10)  # evaluate on eval env every this number of timesteps
+experiment_params.evaluation_freq = int(experiment_params.n_timesteps/10)  # evaluate on eval env every this number of timesteps
 # experiment_params.online_eval_freq = 0  # evaluate on eval env every this number of timesteps
 experiment_params.online_eval_n_episodes = 30
 experiment_params.name = __name__.split('.')[-1]

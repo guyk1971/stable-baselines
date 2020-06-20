@@ -176,8 +176,74 @@ if __name__ == '__main__':
     sim_calc_power_limits()
 else:
     import configparser
+    import load_stbl_model
+    import gym
+    from gym import spaces
     import pickle
     import os
+
+    class DTTEnvReal(gym.Env):
+        """
+        Custom Environment that follows gym interface.
+        This is a simple env that imitates the L2P behaviour
+        """
+        # Because of google colab, we cannot implement the GUI ('human' render mode)
+        metadata = {'render.modes': ['console']}
+
+        def __init__(self, obs_dim=31, n_act=9):
+            super(DTTEnvReal, self).__init__()
+
+            # the observation space include obs_dim float values
+            self.obs_dim = obs_dim
+            # Currently assuming discrete action space with n_act actions
+            self.act_dim = 1
+            # Define action and observation space
+            # They must be gym.spaces objects
+            # Example when using discrete actions, we have two: left and right
+            self.action_space = spaces.Discrete(n_act)
+            # The observation will be the coordinate of the agent
+            # this can be described both by Discrete and Box space
+            self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
+            self.max_path_length = 1000  # arbitrary number
+
+        def reset(self):
+            """
+            Important: the observation must be a numpy array
+            :return: (np.array)
+            """
+            self.step_idx = 0
+            return self.observation_space.sample()
+
+        def step(self, action):
+            '''
+            Currently a dummy function that should not be called.
+            :param action:
+            :return:
+            '''
+            if (not isinstance(action, int)) or (action < 0) or (action >= self.action_space.n):
+                raise ValueError("Received invalid action={} which is not part of the action space".format(action))
+            self.step_idx += 1
+
+            state = self.observation_space.sample()
+            done = False
+            if self.step_idx == self.max_path_length:
+                done = True
+                self.step_idx = 0
+            reward = 1.0
+
+            # Optionally we can pass additional info, we are not using that for now
+            info = {}
+
+            return state, reward, done, info
+
+        def render(self, mode='console'):
+            if mode != 'console':
+                raise NotImplementedError()
+
+        def close(self):
+            pass
+
+    my_version = 'RL_stbl'
     g = {'index_num': 0, 'POWER': [], 'PKG_C0': [], 'tj': [], 'tskin': [],
          'ips_mean': [], 'ips_std': [], 'ips_max': [], 'ips_min': [],
          'MMIO_PL1': [], 'MMIO_PL2': []}
@@ -185,37 +251,45 @@ else:
     config.sections()
     config.read(
         r"C:\Users\awagner\OneDrive - Intel Corporation\Documents\GitHub\dtt_rl\deployment\calc_power_limit_versions\my_config_hyper_test.ini")
-    actor = load_model(
-        r"C:\Users\awagner\share\Data\MLA\DTT\results\stbl\Bobi_config_file-25-05-2020_17-45-29\1\Q_first9_reward2.h5")
-    file = open(
-        r"\\icfsv07a-cifs.iil.intel.com\itaa_mla_inbox1\ML-DTT2.0\reinforement_learning\data_collection\bobi\buffer\first9_reward2_normlized_params.pkl",
-        'rb')
-    normlized_params = pickle.load(file)
-    file.close()
-    my_version = 'RL_model'
+    model_filename = r'path\to\model.zip'
+    n_features = len(list(feature_extraction_scarlet(None)))
+    env = DTTEnvReal(obs_dim=n_features)
+    policy = load_stbl_model(model_filename, env)
 
+    # extract platform parameters from config files
     pl1_min = int(config[my_version]['pl1_min'])
     pl2_max = int(config[my_version]['pl2_max'])
     pl1_max = int(config[my_version]['pl1_max'])
     pl2_min = int(config[my_version]['pl2_min'])
     tskin_max = int(config[my_version]['tskin_max'])
     tskin_idle = int(config[my_version]['tskin_idle'])
+    tmem_max = int(config[my_version]['tmem_max'])
+    tmem_idle = int(config[my_version]['tmem_idle'])
     tj_max = int(config[my_version]['tj_max'])
     tj_idle = int(config[my_version]['tj_idle'])
+    ips_max = int(config[my_version]['ips_max'])
 
     epslion_of_choice = 0
     ewma_power = 0
     curr_pl1_pl2 = {'pl1': pl1_max, 'pl2': pl2_max}
     Tau = 28
-    dPL2act = {v: np.int64(k) for k, v in env.dPL.items()}
+    n2a_dict = {0:(-500,-500), 1:(0,-500), 2:(500,-500),
+                3:(-500,0), 4:(0,0), 5:(500,0),
+                6:(-500,500), 7:(0,500), 8:(500,500)}
+def num_to_action(num):
+    dPL=n2a_dict[num]
+    return {'diffp1': float(dPL[0]), 'diffp2': float(dPL[1])}
+
 
 def calc_power_limits(features):
-    global g, pl1_max, pl1_min, tskin_max, tskin_idle, pl2_max, pl2_min, tj_max, tj_idle, ewma_power, normlized_params, TAU
+    global g, pl1_max, pl1_min, tskin_max, tskin_idle, tmem_max, tmem_idle, pl2_max, pl2_min, tj_max, tj_idle, \
+        ips_max, ewma_power, normlized_params, TAU
 
     g['POWER'].append(features['pkgPower'])
-    g['PKG_C0'].append(features['pkgC0'])
+    # g['PKG_C0'].append(features['pkgC0'])
     g['tj'].append(features['tj'] / 10.0 - 273.15)
     g['tskin'].append(features['tskin'] / 10.0 - 273.15)
+    g['tmem'].append(features['tmem'] / 10.0 - 273.15)
     g['MMIO_PL1'].append(features['mmioPl1'])
     g['MMIO_PL2'].append(features['mmioPl2'])
 
@@ -225,9 +299,9 @@ def calc_power_limits(features):
         cpus_delta.append(features['instructions']['cpu' + str(cpu) + '_instructions_delta'])
 
     g['ips_mean'].append(np.mean(cpus_delta))
-    g['ips_std'].append(np.std(cpus_delta))
-    g['ips_max'].append(np.max(cpus_delta))
-    g['ips_min'].append(np.min(cpus_delta))
+    # g['ips_std'].append(np.std(cpus_delta))
+    # g['ips_max'].append(np.max(cpus_delta))
+    # g['ips_min'].append(np.min(cpus_delta))
 
     choose_random_prob = np.random.binomial(1, epslion_of_choice)
 
@@ -240,25 +314,30 @@ def calc_power_limits(features):
             ewma_power = (curr_pl1_pl2['pl1'] - features['pkgPower'])
     else:
         g['POWER'] = g['POWER'][1:]
-        g['PKG_C0'] = g['PKG_C0'][1:]
+        # g['PKG_C0'] = g['PKG_C0'][1:]
         g['tj'] = g['tj'][1:]
         g['tskin'] = g['tskin'][1:]
+        g['tmem'] = g['tmem'][1:]
         g['ips_mean'] = g['ips_mean'][1:]
-        g['ips_max'] = g['ips_max'][1:]
-        g['ips_min'] = g['ips_min'][1:]
-        g['ips_std'] = g['ips_std'][1:]
+        # g['ips_max'] = g['ips_max'][1:]
+        # g['ips_min'] = g['ips_min'][1:]
+        # g['ips_std'] = g['ips_std'][1:]
         g['MMIO_PL1'] = g['MMIO_PL1'][1:]
         g['MMIO_PL2'] = g['MMIO_PL2'][1:]
-
+        my_features=None
         if choose_random_prob:
-            diff_action = num_to_action(np.random.randint(0, 9))
-
+            q_action = np.random.randint(0, 9)
         else:
-            my_features = feature_extraction(g, pl1_max, pl1_min, tskin_max, tskin_idle, pl2_max, pl2_min, tj_max,
-                                             tj_idle, ewma_power)
-            my_features = [my_features['state_feature_' + str(i)] for i in range(1, len(my_features) + 1)]
-            q_action = np.argmax(actor.predict(np.expand_dims(my_features, axis=0)))
-            diff_action = num_to_action(q_action)
+            features_dict = feature_extraction_scarlet(g, pl1_max, pl1_min, tskin_max, tskin_idle, pl2_max, pl2_min,
+                                                     tj_max,tj_idle, ewma_power)
+            my_features = np.fromiter(features_dict.values(),dtype=float)
+            q_action = policy(my_features)
+
+        diff_action = num_to_action(q_action)
+
+        curr_pl1_pl2['pl1'] = g['MMIO_PL1'][-1]
+        curr_pl1_pl2['pl2'] = g['MMIO_PL2'][-1]
+
 
         curr_pl1_pl2['pl1'] += diff_action['diffp1']
         curr_pl1_pl2['pl2'] += diff_action['diffp2']
