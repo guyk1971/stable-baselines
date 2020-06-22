@@ -8,7 +8,7 @@ from my_zoo.dttsim_wrappers import reward_0,reward_3,feature_extraction_scarlet
 ##########################################################
 
 env_params = DTTEnvSimParams()
-env_params.episode_workloads = EPISODES['cb15mr']
+env_params.episode_workloads = EPISODES['cb20mr']
 env_params.full_reset = True
 env_params.use_wrapper = True
 env_params.wrapper_params['feature_extractor'] = feature_extraction_scarlet
@@ -61,7 +61,7 @@ agent_params.policy_kwargs = {'layers': [64,32]}
 ##########################################################
 experiment_params = ExperimentParams()
 # experiment_params.n_timesteps = 2e6
-experiment_params.n_timesteps = 1e5
+experiment_params.n_timesteps = 1e6
 experiment_params.env_params = env_params
 experiment_params.agent_params = agent_params
 experiment_params.expert_steps_to_record = 50000  # number of episodes to record into the experience buffer

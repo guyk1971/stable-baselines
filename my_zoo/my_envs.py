@@ -327,8 +327,8 @@ SCARLET_TJMAX = 100.0
 SCARLET_TSKINIDLE=35.0
 SCARLET_TSKINMAX = 65.0
 SCARLET_TMEMIDLE=38.0
-SCARLET_TMEMMAX = 72.0
-SCARLET_TSKINOFST = 5.0
+SCARLET_TMEMMAX = 70.0
+SCARLET_TSKINOFST = 0.0
 SCARLET_TAU = 28.0
 SCARLET_INITIAL_PL1 = 25.0      # SCARLET_PL1MAX
 SCARLET_INITIAL_PL2 = 64.0      # SCARLET_PL2MAX
@@ -490,7 +490,18 @@ PLATFORMS = {'Scarlet': Scarlet(PlatformParamsScarlet(tdp=SCARLET_TDP, pl1_min=S
                                                       ips_idle=SCARLET_IPS_IDLE, ips_max=SCARLET_IPS_MAX,
                                                       tskin_ofst=SCARLET_TSKINOFST, tau=SCARLET_TAU,
                                                       p2tj=Power2TjFactor, tj2ts=Tj2TskinFactor,
-                                                      p2ips=Power2IPSmean, tj2tm=Tj2TmemFactor))}
+                                                      p2ips=Power2IPSmean, tj2tm=Tj2TmemFactor)),
+             # ScarletM - relax tskin constraint. rely only on TMEM
+             'ScarletM': Scarlet(PlatformParamsScarlet(tdp=SCARLET_TDP, pl1_min=SCARLET_PL1MIN, pl1_max=SCARLET_PL1MAX,
+                                                      pl2_min=SCARLET_PL2MIN, pl2_max=SCARLET_PL2MAX,
+                                                      tj_idle=SCARLET_TJIDLE, tj_max=SCARLET_TJMAX,
+                                                      tskin_idle=SCARLET_TSKINIDLE, tskin_max=SCARLET_TSKINMAX+10,
+                                                      tmem_idle=SCARLET_TMEMIDLE, tmem_max=SCARLET_TMEMMAX,
+                                                      ips_idle=SCARLET_IPS_IDLE, ips_max=SCARLET_IPS_MAX,
+                                                      tskin_ofst=SCARLET_TSKINOFST, tau=SCARLET_TAU,
+                                                      p2tj=Power2TjFactor, tj2ts=Tj2TskinFactor,
+                                                      p2ips=Power2IPSmean, tj2tm=Tj2TmemFactor)),
+             }
 
 
 

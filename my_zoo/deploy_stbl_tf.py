@@ -1,3 +1,4 @@
+# compare to: dtt_rl/deployment/calc_power_limit_versions/deploy_stbl_tf.py
 import os
 import numpy as np
 from tqdm import tqdm
@@ -89,7 +90,24 @@ def bytes_to_params(serialized_params, param_list):
 ###############################################
 # Tensorflow 1.15 utils
 from typing import Set
+import logging
+
 ALREADY_INITIALIZED = set()  # type: Set[tf.Variable]
+
+def suppress_tensorflow_warnings():
+    #----------- Supress Tensorflow version warnings----------------------
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # or any {'0', '1', '2'}
+
+    # https://stackoverflow.com/questions/15777951/how-to-suppress-pandas-future-warning
+    warnings.simplefilter(action='ignore', category=FutureWarning)
+    warnings.simplefilter(action='ignore', category=Warning)
+
+    tf.get_logger().setLevel('INFO')
+    tf.autograph.set_verbosity(0)
+
+    tf.get_logger().setLevel(logging.ERROR)
+    #-----------------------------------------------------------------------
+    return
 
 def observation_input(ob_space, batch_size=None, name='Ob', scale=False):
     """

@@ -98,6 +98,94 @@ def feature_extraction_scarlet(data, **params):
     return feature_of_dict
 
 
+def feature_extraction_scarlet_ns(data, **params):
+    # declare feature list
+    feature_of_dict = {'power_to_curpl1_mean':None,'power_to_curpl1_std':None,'power_to_maxpl1_mean':None,
+                       'power_to_maxpl1_std':None,'pl1_to_pl2':None, 'ips_mean_mean':None, 'ips_mean_std':None,
+                       'tj_slope':None,'tmem_slope':None,'power_to_curpl1':None, 'power_to_maxpl1':None,
+                       'pl1':None,'pl2':None,'tj':None,'tmem':None,'ips_mean':None,'torbu':None}
+    if data is not None:
+        # parse params
+        pl1_max = params['pl1_max']
+        pl1_min = params['pl1_min']
+        pl2_max = params['pl2_max']
+        pl2_min = params['pl2_min']
+        tj_max = params['tj_max']
+        tj_idle = params['tj_idle']
+        tmem_max = params['tmem_max']
+        tmem_idle = params['tmem_idle']
+        ips_max = params['ips_max']
+        ewma_power = params['ewma_power']
+        normlized_params = params.get('normlized_params', None)
+
+        # extract features
+        n_frames = len(data['POWER'])
+        feature_of_dict['power_to_curpl1'] = [data['POWER'][i] / data['MMIO_PL1'][i] for i in range(n_frames)]
+        feature_of_dict['power_to_maxpl1'] = [data['POWER'][i] / pl1_max for i in range(n_frames)]
+        # feature_of_dict['PKG_C0'] = [data['PKG_C0'][i] for i in range(n_frames)]
+        feature_of_dict['pl1'] = [(data['MMIO_PL1'][i] - pl1_min) / (pl1_max - pl1_min) for i in range(n_frames)]
+        feature_of_dict['pl2'] = [(data['MMIO_PL2'][i] - pl2_min) / (pl2_max - pl2_min) for i in range(n_frames)]
+        feature_of_dict['tj'] = [(data['tj'][i] - tj_idle) / (tj_max - tj_idle) for i in range(n_frames)]
+        feature_of_dict['tmem'] = [(data['tmem'][i] - tmem_idle) / (tmem_max - tmem_idle) for i in range(n_frames)]
+
+
+
+        ###################################
+        # feature start
+        # feature_of_dict['action_pl1'] = data['MMIO_PL1'][-1] - data['MMIO_PL1'][-2]
+        # feature_of_dict['action_pl2'] = data['MMIO_PL1'][-1] - data['MMIO_PL1'][-2]
+
+        feature_of_dict['power_to_curpl1_mean'] = np.mean(feature_of_dict['power_to_curpl1'])
+        feature_of_dict['power_to_curpl1_std'] = np.std(feature_of_dict['power_to_curpl1'])
+        feature_of_dict['power_to_maxpl1_mean'] = np.mean(feature_of_dict['power_to_maxpl1'])
+        feature_of_dict['power_to_maxpl1_std'] = np.std(feature_of_dict['power_to_maxpl1'])
+
+        feature_of_dict['pl1_to_pl2'] = (data['MMIO_PL1'][-1] - pl1_min) / (data['MMIO_PL2'][-1] - pl1_min)
+
+        # feature_of_dict['PKG_C0_mean'] = np.mean(feature_of_dict['PKG_C0'])
+        # feature_of_dict['PKG_C0_std'] = np.std(feature_of_dict['PKG_C0'])
+
+        # feature_of_dict['ips_max_mean'] = np.mean(data['ips_max'])
+        # feature_of_dict['ips_max_std'] = np.std(data['ips_max'])
+
+        # feature_of_dict['ips_min_mean'] = np.mean(data['ips_min'])
+        # feature_of_dict['ips_min_std'] = np.std(data['ips_min'])
+
+        feature_of_dict['ips_mean_mean'] = np.mean(data['ips_mean'])/ips_max
+        feature_of_dict['ips_mean_std'] = np.std(data['ips_mean'])/ips_max      # need ^2 ? looks like not.
+
+        # feature_of_dict['ips_std_mean'] = np.mean(data['ips_std'])
+        # feature_of_dict['ips_std_std'] = np.std(data['ips_std'])
+
+        feature_of_dict['tj_slope'] = (feature_of_dict['tj'][-1] - feature_of_dict['tj'][0]) / n_frames
+        feature_of_dict['tmem_slope'] = (feature_of_dict['tmem'][-1] - feature_of_dict['tmem'][0]) / n_frames
+
+
+        feature_of_dict['power_to_curpl1'] = feature_of_dict['power_to_curpl1'][-1]
+        feature_of_dict['power_to_maxpl1'] = feature_of_dict['power_to_maxpl1'][-1]
+        # feature_of_dict['PKG_C0'] = feature_of_dict['PKG_C0'][-1]
+        feature_of_dict['pl1'] = feature_of_dict['pl1'][-1]
+        feature_of_dict['pl2'] = feature_of_dict['pl2'][-1]
+        feature_of_dict['tj'] = feature_of_dict['tj'][-1]
+        feature_of_dict['tmem'] = feature_of_dict['tmem'][-1]
+
+        # feature_of_dict['ips_max'] = data['ips_max'][-1]
+        # feature_of_dict['ips_min'] = data['ips_min'][-1]
+        feature_of_dict['ips_mean'] = data['ips_mean'][-1]/ips_max
+        # feature_of_dict['ips_std'] = data['ips_std'][-1]
+
+        feature_of_dict['torbu'] = ewma_power / pl1_max
+        ################################## 17 features ######################################
+        # z-normalizing with train parameters (assuming gaussian distribution of each of the features)
+        if normlized_params:
+            for feature in feature_of_dict.keys():
+                feature_of_dict[feature] = (feature_of_dict[feature] - normlized_params[feature]['mean']) / \
+                                           normlized_params[feature]['std']
+
+    return feature_of_dict
+
+
+FEATURE_EXTRACTORS={0: feature_extraction_scarlet,1:feature_extraction_scarlet_r,2:feature_extraction_scarlet_ns}
 def parse_cmd_line():
     parser = argparse.ArgumentParser()
     parser.add_argument('-n','--n_episodes', help='number of episodes', default=30,type=int)
@@ -105,8 +193,10 @@ def parse_cmd_line():
     parser.add_argument('--pf', help='fixed policy', type=int, nargs=2, action='append')
     parser.add_argument('--pg', help='greedy policy', type=bool)
     parser.add_argument('--pm', help='load policy model from path', type=str)
+    parser.add_argument('-fe', '--featurext', help='feature extractor', default=0, type=int)
     parser.add_argument('-r', '--reward', help='reward function',default=0, type=int)
     parser.add_argument('--platform', help='type of platform: Scarlet', default='Scarlet', type=str)
+    parser.add_argument('-v','--verbose',help='verbose will create esif file', action='store_true')
     args = parser.parse_args()
     return args
 
@@ -116,10 +206,14 @@ def sim_calc_power_limits():
     platform = PLATFORMS[args.platform]
     n_episodes=args.n_episodes
     episode_workloads = EPISODES[args.benchmark]
-    env = DTTEnvSim(platform, episode_workloads=episode_workloads, norm_obs=False)
-    env = DTTStateRewardWrapper(env=env,feature_extractor=feature_extraction_scarlet,reward_calc=reward_0,n_frames=5)
+    log_output=os.path.join(os.getcwd(),'tmp') if args.verbose else None
+    featurext = FEATURE_EXTRACTORS[args.featurext]
+    reward=REWARD_FUNC[args.reward]
+    env = DTTEnvSim(platform, episode_workloads=episode_workloads, norm_obs=False, log_output=log_output)
+    env = DTTStateRewardWrapper(env=env,feature_extractor=featurext,reward_calc=reward,n_frames=5)
     dPL2act = {v: np.int64(k) for k, v in env.dPL.items()}
-    feat_cols = list(feature_extraction_scarlet(None))
+    feat_cols = list(featurext(None))
+    print(f'running {n_episodes} of {args.benchmark} with feature {args.featurext} and reward {args.reward}')
     # define the policy
     policies = {'random':random_policy}
     policy=random_policy
@@ -173,6 +267,8 @@ if __name__ == '__main__':
     from my_zoo.deploy_stbl_tf import load_stbl_model
     import pandas as pd
     os.makedirs('tmp', exist_ok=True)
+    suppress_tensorflow_warnings()
+    REWARD_FUNC = {0: reward_0, 3: reward_3}
     sim_calc_power_limits()
 else:
     import configparser
