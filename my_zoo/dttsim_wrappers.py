@@ -289,6 +289,11 @@ def reward_3(params,obs):
              1000*((obs[4]>=(params.tskin_max-params.tskin_ofst)) | (obs[5]>=params.tmem_max))
     return reward
 
+# similar to reward_0 only with higher penalty for overshoot
+def reward_6(params,obs):
+    reward = obs[0] - params.pl1_max + obs[1] - params.pl2_max - \
+             100*((obs[4]>=(params.tskin_max-params.tskin_ofst)) | (obs[5]>=params.tmem_max))
+    return reward
 
 
 ###########################################################################################################

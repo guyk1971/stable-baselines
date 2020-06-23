@@ -263,19 +263,18 @@ if __name__ == '__main__':
     if proj_root not in sys.path:
         sys.path.insert(0, proj_root)
     from my_zoo.my_envs import PLATFORMS,DTTEnvSim,EPISODES,random_policy
-    from my_zoo.dttsim_wrappers import DTTStateRewardWrapper,reward_0,reward_3
-    from my_zoo.deploy_stbl_tf import load_stbl_model
+    from my_zoo.dttsim_wrappers import DTTStateRewardWrapper,reward_0,reward_3,reward_6
+    from my_zoo.deploy_stbl_tf import load_stbl_model,suppress_tensorflow_warnings
     import pandas as pd
     os.makedirs('tmp', exist_ok=True)
     suppress_tensorflow_warnings()
-    REWARD_FUNC = {0: reward_0, 3: reward_3}
+    REWARD_FUNC = {0: reward_0, 3: reward_3,6: reward_6}
     sim_calc_power_limits()
 else:
     import configparser
     import load_stbl_model
     import gym
     from gym import spaces
-    import pickle
     import os
 
     class DTTEnvReal(gym.Env):
@@ -345,10 +344,12 @@ else:
          'MMIO_PL1': [], 'MMIO_PL2': []}
     config = configparser.ConfigParser()
     config.sections()
-    config.read(
-        r"C:\Users\awagner\OneDrive - Intel Corporation\Documents\GitHub\dtt_rl\deployment\calc_power_limit_versions\my_config_hyper_test.ini")
-    model_filename = r'path\to\model.zip'
-    n_features = len(list(feature_extraction_scarlet(None)))
+    # config.read(
+    #     r"C:\Users\awagner\OneDrive - Intel Corporation\Documents\GitHub\dtt_rl\deployment\calc_power_limit_versions\my_config_hyper_test.ini")
+    config.read(r"my_config_hyper_test.ini")
+    model_filename = r'tmp\dqn_cb20_f2_r0.zip'
+    feature_extractor = FEATURE_EXTRACTORS[2]       # if 'f2' in model name then its feature extractor 2
+    n_features = len(list(feature_extractor(None)))
     env = DTTEnvReal(obs_dim=n_features)
     policy = load_stbl_model(model_filename, env)
 
@@ -378,14 +379,18 @@ def num_to_action(num):
 
 
 def calc_power_limits(features):
+    # note that we dont have both tskin and tmem.
+    # This function assumes that the value of tmem is provided through features['tskin']
+
     global g, pl1_max, pl1_min, tskin_max, tskin_idle, tmem_max, tmem_idle, pl2_max, pl2_min, tj_max, tj_idle, \
         ips_max, ewma_power, normlized_params, TAU
 
     g['POWER'].append(features['pkgPower'])
     # g['PKG_C0'].append(features['pkgC0'])
     g['tj'].append(features['tj'] / 10.0 - 273.15)
-    g['tskin'].append(features['tskin'] / 10.0 - 273.15)
-    g['tmem'].append(features['tmem'] / 10.0 - 273.15)
+    # g['tskin'].append(features['tskin'] / 10.0 - 273.15)
+    # g['tmem'].append(features['tmem'] / 10.0 - 273.15)
+    g['tmem'].append(features['tskin'] / 10.0 - 273.15)
     g['MMIO_PL1'].append(features['mmioPl1'])
     g['MMIO_PL2'].append(features['mmioPl2'])
 
@@ -412,7 +417,7 @@ def calc_power_limits(features):
         g['POWER'] = g['POWER'][1:]
         # g['PKG_C0'] = g['PKG_C0'][1:]
         g['tj'] = g['tj'][1:]
-        g['tskin'] = g['tskin'][1:]
+        # g['tskin'] = g['tskin'][1:]
         g['tmem'] = g['tmem'][1:]
         g['ips_mean'] = g['ips_mean'][1:]
         # g['ips_max'] = g['ips_max'][1:]
@@ -424,8 +429,9 @@ def calc_power_limits(features):
         if choose_random_prob:
             q_action = np.random.randint(0, 9)
         else:
-            features_dict = feature_extraction_scarlet(g, pl1_max, pl1_min, tskin_max, tskin_idle, pl2_max, pl2_min,
-                                                     tj_max,tj_idle, ewma_power)
+            features_dict = feature_extractor(g, pl1_max=pl1_max, pl1_min=pl1_min, tmem_max=tmem_max,tmem_idle=tmem_idle,
+                                              pl2_max=pl2_max, pl2_min=pl2_min,tj_max=tj_max,tj_idle=tj_idle,
+                                              ips_max=ips_max,ewma_power=ewma_power)
             my_features = np.fromiter(features_dict.values(),dtype=float)
             q_action = policy(my_features)
 

@@ -6,6 +6,7 @@ import argparse
 
 ###################################################################################################
 import json
+import pickle
 from collections import OrderedDict, deque
 from abc import abstractmethod,ABC
 import cloudpickle
@@ -41,6 +42,8 @@ def json_to_data(json_string, custom_objects=None):
     # This will be filled with deserialized data
     return_data = {}
     for data_key, data_item in json_dict.items():
+        if data_key == 'policy':        # ignore the policy as it will be overwritten
+            continue
         if custom_objects is not None and data_key in custom_objects.keys():
             # If item is provided in custom_objects, replace
             # the one from JSON with the one in custom_objects

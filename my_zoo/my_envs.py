@@ -175,7 +175,12 @@ EPISODES = {'cb_long':  10 * (['cb15'] + [('cooldown',300)]) + [('cooldown',300)
             'cb15mr':   5 * (['cb15']+[('cooldown',1)]),
             'cb20mr':   5 * (['cb20']+[('cooldown',1)]),
             'cb15': ['cb15']+[('cooldown',1)],
-            'cb20': ['cb20']+[('cooldown',1)]
+            'cb20': ['cb20']+[('cooldown',1)],
+            'cb20mix1': 10 * (['cb20']+[('cooldown',300)]) + [('cooldown',300)] + 5 * (['cb20']+[('cooldown',1)]),
+            'cb15mix1': 10 * (['cb15']+[('cooldown',300)]) + [('cooldown',300)] + 5 * (['cb15']+[('cooldown',1)]),
+            'cb20mix2': 10 * (['cb20']+[('cooldown',300)]) + [('cooldown',300)] + \
+                          10 * (['cb20']+[('cooldown',1)]) + [('cooldown',300)] + \
+                          10 * (['cb20']+[('cooldown',30)])
             }
 
 
@@ -485,7 +490,7 @@ PLATFORMS = {'Scarlet': Scarlet(PlatformParamsScarlet(tdp=SCARLET_TDP, pl1_min=S
              'ScarletX': Scarlet(PlatformParamsScarlet(tdp=SCARLET_TDP, pl1_min=SCARLET_PL1MIN, pl1_max=SCARLET_PL2MAX,
                                                       pl2_min=SCARLET_PL2MIN, pl2_max=SCARLET_PL2MAX,
                                                       tj_idle=SCARLET_TJIDLE, tj_max=SCARLET_TJMAX,
-                                                      tskin_idle=SCARLET_TSKINIDLE, tskin_max=SCARLET_TSKINMAX,
+                                                      tskin_idle=SCARLET_TSKINIDLE, tskin_max=SCARLET_TSKINMAX+10,
                                                       tmem_idle=SCARLET_TMEMIDLE, tmem_max=SCARLET_TMEMMAX,
                                                       ips_idle=SCARLET_IPS_IDLE, ips_max=SCARLET_IPS_MAX,
                                                       tskin_ofst=SCARLET_TSKINOFST, tau=SCARLET_TAU,
