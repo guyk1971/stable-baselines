@@ -195,7 +195,7 @@ def parse_cmd_line():
     parser.add_argument('--pm', help='load policy model from path', type=str)
     parser.add_argument('-fe', '--featurext', help='feature extractor', default=0, type=int)
     parser.add_argument('-r', '--reward', help='reward function',default=0, type=int)
-    parser.add_argument('--platform', help='type of platform: Scarlet', default='Scarlet', type=str)
+    parser.add_argument('--platform', help='type of platform: Scarlet', default='ScarletM', type=str)
     parser.add_argument('-v','--verbose',help='verbose will create esif file', action='store_true')
     args = parser.parse_args()
     return args
@@ -263,16 +263,16 @@ if __name__ == '__main__':
     if proj_root not in sys.path:
         sys.path.insert(0, proj_root)
     from my_zoo.my_envs import PLATFORMS,DTTEnvSim,EPISODES,random_policy
-    from my_zoo.dttsim_wrappers import DTTStateRewardWrapper,reward_0,reward_3,reward_6
+    from my_zoo.dttsim_wrappers import DTTStateRewardWrapper,reward_0,reward_3,reward_6,reward_7
     from my_zoo.deploy_stbl_tf import load_stbl_model,suppress_tensorflow_warnings
     import pandas as pd
     os.makedirs('tmp', exist_ok=True)
     suppress_tensorflow_warnings()
-    REWARD_FUNC = {0: reward_0, 3: reward_3,6: reward_6}
+    REWARD_FUNC = {0: reward_0, 3: reward_3,6: reward_6, 7:reward_7}
     sim_calc_power_limits()
 else:
     import configparser
-    import load_stbl_model
+    from deploy_stbl_tf import load_stbl_model,suppress_tensorflow_warnings
     import gym
     from gym import spaces
     import os

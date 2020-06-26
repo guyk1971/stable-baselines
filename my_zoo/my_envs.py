@@ -180,7 +180,20 @@ EPISODES = {'cb_long':  10 * (['cb15'] + [('cooldown',300)]) + [('cooldown',300)
             'cb15mix1': 10 * (['cb15']+[('cooldown',300)]) + [('cooldown',300)] + 5 * (['cb15']+[('cooldown',1)]),
             'cb20mix2': 10 * (['cb20']+[('cooldown',300)]) + [('cooldown',300)] + \
                           10 * (['cb20']+[('cooldown',1)]) + [('cooldown',300)] + \
-                          10 * (['cb20']+[('cooldown',30)])
+                          10 * (['cb20']+[('cooldown',30)]),
+            'cb20mix3': 8 * (5 * (['cb20']+[('cooldown',1)])+[('cooldown',300)]) + \
+                        10 * (['cb20']+[('cooldown',300)])+ \
+                        8 * (5 * (['cb20']+[('cooldown',1)])+[('cooldown',300)]) + \
+                        10 * (['cb20'] + [('cooldown', 180)]) + \
+                        8 * (5 * (['cb20'] + [('cooldown', 1)]) + [('cooldown', 300)]) + \
+                        10 * (['cb20'] + [('cooldown', 120)]) + \
+                        8 * (5 * (['cb20'] + [('cooldown', 1)]) + [('cooldown', 300)]) + \
+                        10 * (['cb20'] + [('cooldown', 90)]) + \
+                        8 * (5 * (['cb20'] + [('cooldown', 1)]) + [('cooldown', 300)]) + \
+                        10 * (['cb20'] + [('cooldown', 60)]) + \
+                        8 * (5 * (['cb20'] + [('cooldown', 1)]) + [('cooldown', 300)]) + \
+                        10 * (['cb20'] + [('cooldown', 30)]) + \
+                        8 * (5 * (['cb20'] + [('cooldown', 1)]) + [('cooldown', 300)])
             }
 
 
@@ -742,11 +755,12 @@ def main():
     #                     10*(['cb15']+[('cooldown',30)])
 
     # the following is worth 33020 sec = 9H:10M:20S - runs 260 sec on the server (single core)
-    episode_workloads = EPISODES['cb_long']
+    # episode_workloads = EPISODES['cb_long']
+    episode_workloads = EPISODES['cb20mix3']
     env = DTTEnvSim(platform, episode_workloads=episode_workloads, norm_obs=False,
                     # fixed_pl=(SCARLET_INITIAL_PL1,SCARLET_INITIAL_PL2),
                     log_output=os.path.join(os.getcwd(),'tmp'))
-    policy = POLICIES['g']  # (f)ixed, (g)reedy, or (r)andom
+    policy = POLICIES['r']  # (f)ixed, (g)reedy, or (r)andom
     dPL2act = {v: np.int64(k) for k, v in env.dPL.items()}
     obs = env.reset()
     done = False

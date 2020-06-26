@@ -295,6 +295,14 @@ def reward_6(params,obs):
              100*((obs[4]>=(params.tskin_max-params.tskin_ofst)) | (obs[5]>=params.tmem_max))
     return reward
 
+# reduce the variance by setting small rewards
+def reward_7(params,obs):
+    # ips=obs[7], pl1=obs[0], pl2=obs[1], tskin=obs[4], tmem=obs[5]
+    reward = (obs[7]/(10**9))- int(obs[0] < params.pl1_max) - int(obs[1] < params.pl2_max) - \
+             10*((obs[4]>=(params.tskin_max-params.tskin_ofst)) | (obs[5]>=params.tmem_max))
+    return reward
+
+
 
 ###########################################################################################################
 # DTTSim wrapper

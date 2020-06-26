@@ -60,7 +60,23 @@ def reward_6(params,state):
     return reward
 
 
-REWARDS={0:orig_reward,1:reward_ips,2:reward_pl1_pl2_overshoot, 3:reward_3, 4:reward_4, 5:reward_ips_a, 6: reward_6}
+# similar to orig_reward only with higher penalty for overshoot
+def reward_7(params,state):
+    reward = (state.ips_mean/(10**9)) - int(state.pl1 < params.pl1_max) - int(state.pl2 < params.pl2_max) -\
+             10*((state.tskin>=(params.tskin_max-params.tskin_ofst)) | (state.tmem>=params.tmem_max))
+    return reward
+
+# similar to orig_reward only with higher penalty for overshoot
+def reward_8(params,state):
+    reward = (state.ips_mean/(10**10)) - ((state.tskin>=(params.tskin_max-params.tskin_ofst)) | (state.tmem>=params.tmem_max))
+    return reward
+
+
+
+
+
+REWARDS={0:orig_reward,1:reward_ips,2:reward_pl1_pl2_overshoot, 3:reward_3, 4:reward_4, 5:reward_ips_a, 6: reward_6,
+         7: reward_7, 8: reward_8}
 
 
 def parse_cmd_line():
@@ -68,7 +84,7 @@ def parse_cmd_line():
     parser.add_argument('-n','--n_episodes', help='number of episodes', default=30,type=int)
     parser.add_argument('-b', '--benchmark', help='benchmark to run', type=str)
     parser.add_argument('--pf', help='fixed policy', type=int, nargs=2, action='append')
-    parser.add_argument('--pg', help='greedy policy', type=bool)
+    parser.add_argument('--pg', help='greedy policy', action='store_true')
     parser.add_argument('-r', '--reward', help='reward function',default=0, type=int)
     parser.add_argument('--platform', help='type of platform: Scarlet', default='Scarlet', type=str)
     args = parser.parse_args()
