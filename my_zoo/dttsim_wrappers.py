@@ -284,6 +284,16 @@ def reward_0(params,obs):
              10*((obs[4]>=(params.tskin_max-params.tskin_ofst)) | (obs[5]>=params.tmem_max))
     return reward
 
+# Equivalent to reward_pl1_pl2_overshoot
+def reward_2(params,obs):
+    pl1_norm = (obs[0]-params.pl1_min)/(params.pl1_max-params.pl1_min)
+    pl2_norm = (obs[1]-params.pl2_min)/(params.pl2_max-params.pl2_min)
+    tskin_norm = (obs[4] - params.tskin_idle)/(params.tskin_max - params.tskin_idle)
+    tj_norm = (obs[3] - params.tj_idle)/(params.tj_max - params.tj_idle)
+    reward = -(1 - pl1_norm)**0.5 - (1 - pl2_norm)**0.5 - 2*(tskin_norm>=1) -2*(tj_norm>=1)
+    return reward
+
+
 def reward_3(params,obs):
     reward = (obs[0] - params.pl1_max) + (obs[1] - params.pl2_max) + (obs[7]/(10**9)) - \
              1000*((obs[4]>=(params.tskin_max-params.tskin_ofst)) | (obs[5]>=params.tmem_max))

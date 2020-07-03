@@ -36,6 +36,18 @@ class EnvParams:
         return vars(self)
 
 
+#############################
+# Agents Defaults
+
+class DTTRealCSVParams(EnvParams):
+    def __init__(self):
+        super(DTTRealCSVParams, self).__init__()
+        self.env_id = 'DTTRealCSV'
+        self.obs_dim = None         # dictated by the experience buffer
+
+
+
+
 class DTTEnvSimParams(EnvParams):
     def __init__(self):
         super(DTTEnvSimParams, self).__init__()
