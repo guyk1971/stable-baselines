@@ -153,8 +153,8 @@ def env_make(n_envs,env_params,algo,seed):
             logger.info('using DTTStateRewardWrapper')
             env = DTTStateRewardWrapper(env,**env_params.wrapper_params)
     elif env_id=='DTTRealCSV':
-        env = DTTEnvReal()
-    else:       # for gym Classic Control (CC_ENV)
+        env = DTTEnvReal(obs_dim=env_params.obs_dim)
+    else:   # gym Classic Control Env (CC_ENV)
         create_env = get_create_env(algo,seed,env_params)
         env = create_env(n_envs)
     return env

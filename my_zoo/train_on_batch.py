@@ -244,7 +244,9 @@ def run_experiment(experiment_params):
         er_buf = load_or_create_experience_buffer(experiment_params,output_dir)
         # start batch rl training
         er_buf_size = len(er_buf['obs'])
-        logger.info("Experience buffer is ready with {0} samples".format(er_buf_size))
+        # derive obs dim from the experience buffer
+        experiment_params.env_params.obs_dim = np.prod(er_buf['obs'].shape[1:])
+        logger.info(f"Experience buffer is ready with {er_buf_size} samples with flat dim {experiment_params.env_params.obs_dim}")
         logger.info(title('start batch training',30))
 
         ###################
