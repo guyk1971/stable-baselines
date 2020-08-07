@@ -413,6 +413,7 @@ class SAC(OffPolicyRLModel):
 
                 # Only stop training if return value is False, not when it is None. This is for backwards
                 # compatibility with callbacks that have no return statement.
+                callback.update_locals(locals())
                 if callback.on_step() is False:
                     break
 
@@ -487,9 +488,10 @@ class SAC(OffPolicyRLModel):
                 else:
                     mean_reward = round(float(np.mean(episode_rewards[-101:-1])), 1)
 
-                num_episodes = len(episode_rewards)
+                # substract 1 as we appended a new term just now
+                num_episodes = len(episode_rewards) - 1 
                 # Display training infos
-                if self.verbose >= 1 and done and log_interval is not None and len(episode_rewards) % log_interval == 0:
+                if self.verbose >= 1 and done and log_interval is not None and num_episodes % log_interval == 0:
                     fps = int(step / (time.time() - start_time))
                     logger.logkv("episodes", num_episodes)
                     logger.logkv("mean 100 episode reward", mean_reward)
