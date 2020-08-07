@@ -349,6 +349,7 @@ class DBCQ(OffPolicyRLModel):
                     for k in losses.keys():
                         tot_epoch_loss[k] += losses[k]
                     # in DBCQ, the step is training step done on a minibatch of samples.
+                    callback.update_locals(locals())
                     if callback.on_step() is False:
                         break
                 epoch += 1     # inc

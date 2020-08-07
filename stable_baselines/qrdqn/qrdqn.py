@@ -320,6 +320,7 @@ class QRDQN(OffPolicyRLModel):
                 ts += len(obses_t)
                 tot_epoch_loss += np.mean(td_errors)
                 # in batch rl, the step is training step done on a minibatch of samples.
+                callback.update_locals(locals())
                 if callback.on_step() is False:
                     break
             epoch += 1  # inc
@@ -422,6 +423,7 @@ class QRDQN(OffPolicyRLModel):
                     self.num_timesteps += 1
 
                     # Stop training if return value is False
+                    callback.update_locals(locals())
                     if callback.on_step() is False:
                         break
 
