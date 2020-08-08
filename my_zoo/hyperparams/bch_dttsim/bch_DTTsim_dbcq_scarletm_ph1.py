@@ -1,17 +1,24 @@
-# utst_bch_acrobot_rnd2dbcq.py
+# bch_DTTSim_dbcq_scarletm_ph0.py
 
 from my_zoo.hyperparams.default_config import *
-from stable_baselines.deepq import MlpPolicy
+from stable_baselines.dbcq import MlpPolicy as dbcq_MlpPolicy
+from my_zoo.my_envs import EPISODES
+from my_zoo.dttsim_wrappers import reward_7,feature_extraction_scarlet_ns
 ##########################################################
 # Env                                                    #
 ##########################################################
-env_params = EnvParams()
-env_params.env_id = 'acrobot'
+env_params = DTTEnvSimParams()
+env_params.episode_workloads = EPISODES['cb20mr']
+env_params.full_reset = True
+env_params.use_wrapper = True
+env_params.wrapper_params['feature_extractor'] = feature_extraction_scarlet_ns
+env_params.wrapper_params['reward_calc'] = reward_7
+env_params.wrapper_params['n_frames'] = 5
 
 ##########################################################
 # Experience Buffer or Expert generator
 ##########################################################
-experience_dataset = '/home/guy/share/Data/MLA/stbl/results/utst/utst_onl_acrobot_rnd-28-04-2020_12-47-23/1/er_acrobot_random_100000.csv'
+experience_dataset = "/home/gkoren2/share/Data/MLA/DTT/results/stbl/bchsim/onlsim_rnd_ScarletM_cb20mix3_f2_r7-25-06-2020_12-48-55/1/er_DTTSim_random_175000.csv"
 # load the expert model from file, without training:
 expert_model_file = None       # agent to load to generate experience
 
@@ -19,15 +26,18 @@ expert_model_file = None       # agent to load to generate experience
 # Agent Params                                           #
 ##########################################################
 trained_agent_model_file = None            # if we want to continue train an agent, set the path to saved model
-agent_params = DQNAgentParams()
+agent_params = DBCQAgentParams()
 # here we can change the various parameters - for example, we can change the batch size
-agent_params.policy = MlpPolicy
+agent_params.policy = dbcq_MlpPolicy
 agent_params.verbose = 1
 agent_params.learning_rate = 1e-4
-agent_params.policy_kwargs = {'layers': [64]}
+agent_params.policy_kwargs = {'layers': [64, 32]}
 agent_params.target_network_update_freq = 1         # every 1 epoch
+agent_params.ope_freq = 0                          # off policy evaluate and maybe save every # epochs
 agent_params.batch_size = 128
 agent_params.buffer_train_fraction = 1.0         # currently online evaluation. use all buffer for training
+agent_params.gen_act_params['lr'] = 1e-4
+agent_params.gen_act_params['batch_size'] = 128
 
 
 ##########################################################
@@ -46,11 +56,11 @@ experiment_params.expert_model_file = expert_model_file
 # main agent
 experiment_params.trained_agent_model_file = trained_agent_model_file
 experiment_params.agent_params = agent_params
-experiment_params.n_timesteps = int(1e7)
+experiment_params.n_timesteps = int(5e7)        # number of epochs = n_timesteps/n_timesteps_in_csv
 
-experiment_params.evaluation_freq = int(experiment_params.n_timesteps/20)  # evaluate on eval env every this number of timesteps
+experiment_params.online_eval_freq = 0  # evaluate on eval env every this number of timesteps, if 0 - no online eval
+experiment_params.online_eval_freq = int(experiment_params.n_timesteps/20)  # evaluate on eval env every this number of timesteps
 experiment_params.online_eval_n_episodes = 30
-experiment_params.off_policy_eval_dataset_eval_fraction = 0.3
 
 # post training the main agent - if we want to record experience with the new expert:
 experiment_params.expert_steps_to_record = 0      # number of steps to rollout into the buffer
