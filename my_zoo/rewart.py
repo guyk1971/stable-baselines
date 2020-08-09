@@ -23,13 +23,15 @@ def reward_pl1_pl2_overshoot(params,state):
     pl2_norm = (state.pl2-params.pl2_min)/(params.pl2_max-params.pl2_min)
     tskin_norm = (state.tskin - params.tskin_idle)/(params.tskin_max - params.tskin_idle)
     tj_norm = (state.tj - params.tj_idle)/(params.tj_max - params.tj_idle)
-    reward = -(1 - pl1_norm)**0.5 - (1 - pl2_norm)**0.5 - 1000*(tskin_norm>=1) -1000*(tj_norm>=1)
+    reward = -(1 - pl1_norm)**0.5 - (1 - pl2_norm)**0.5 - 2*(tskin_norm>=1) -2*(tj_norm>=1)
     return reward
+
 
 def reward_ips(params,state):
     reward = state.ips_mean/(10**8) - 1000*((state.tskin>=(params.tskin_max-params.tskin_ofst)) |
                                              (state.tmem>=params.tmem_max))
     return reward
+
 
 def reward_ips_a(params,state):
     tskin_norm = (state.tskin - params.tskin_idle)/(params.tskin_max - params.tskin_idle)

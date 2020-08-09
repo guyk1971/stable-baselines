@@ -174,6 +174,7 @@ EPISODES = {'cb_long':  10 * (['cb15'] + [('cooldown',300)]) + [('cooldown',300)
             'cb20_300':   10 * (['cb20']+[('cooldown',300)]),
             'cb15mr':   5 * (['cb15']+[('cooldown',1)]),
             'cb20mr':   5 * (['cb20']+[('cooldown',1)]),
+            'cb20mrx3': 2*(5 * (['cb20']+[('cooldown',1)])+[('cooldown',300)]) + 5 * (['cb20']+[('cooldown',1)]),
             'cb15': ['cb15']+[('cooldown',1)],
             'cb20': ['cb20']+[('cooldown',1)],
             'cb20mix1': 10 * (['cb20']+[('cooldown',300)]) + [('cooldown',300)] + 5 * (['cb20']+[('cooldown',1)]),

@@ -185,7 +185,11 @@ def feature_extraction_scarlet_ns(data, **params):
     return feature_of_dict
 
 
-FEATURE_EXTRACTORS={0: feature_extraction_scarlet,1:feature_extraction_scarlet_r,2:feature_extraction_scarlet_ns}
+FEATURE_EXTRACTORS={0: feature_extraction_scarlet,2:feature_extraction_scarlet_ns}
+
+
+
+
 def parse_cmd_line():
     parser = argparse.ArgumentParser()
     parser.add_argument('-n','--n_episodes', help='number of episodes', default=30,type=int)
@@ -268,7 +272,7 @@ if __name__ == '__main__':
     import pandas as pd
     os.makedirs('tmp', exist_ok=True)
     suppress_tensorflow_warnings()
-    REWARD_FUNC = {0: reward_0, 3: reward_3,6: reward_6, 7:reward_7}
+    REWARD_FUNC = {0: reward_0, 2: reward_2, 3: reward_3,6: reward_6, 7:reward_7}
     sim_calc_power_limits()
 else:
     import configparser
@@ -444,17 +448,11 @@ def calc_power_limits(features):
         curr_pl1_pl2['pl1'] += diff_action['diffp1']
         curr_pl1_pl2['pl2'] += diff_action['diffp2']
 
-    if curr_pl1_pl2['pl2'] < pl2_min:
-        curr_pl1_pl2['pl2'] = pl2_min
-
-    if curr_pl1_pl2['pl2'] > pl2_max:
-        curr_pl1_pl2['pl2'] = pl2_max
-
-    if curr_pl1_pl2['pl1'] > curr_pl1_pl2['pl2']:
-        curr_pl1_pl2['pl1'] = curr_pl1_pl2['pl2']
-
-    if curr_pl1_pl2['pl1'] < pl1_min:
-        curr_pl1_pl2['pl1'] = pl1_min
+    # clip pl2 to limits
+    curr_pl1_pl2['pl2'] = np.min([np.max([curr_pl1_pl2['pl2'],pl2_min]),pl2_max])
+    # clip pl1 to limits
+    pl1_ub = np.min([pl1_max, curr_pl1_pl2['pl2']])
+    curr_pl1_pl2['pl1'] = np.min([np.max([curr_pl1_pl2['pl1'],pl1_min]),pl1_ub])
 
     pls = {'pl1': int(curr_pl1_pl2['pl1']), 'pl2': int(curr_pl1_pl2['pl2']),
            'diff_action': q_action,
