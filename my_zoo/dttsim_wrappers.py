@@ -331,7 +331,8 @@ class DTTStateRewardWrapper(gym.Wrapper):
         self.n_frames = n_frames
         self.feature_extractor = feature_extractor
         self.reward_calc = reward_calc
-        self.n_features = len(self.feature_extractor(None).keys())
+        self.feature_names = list(self.feature_extractor(None).keys())
+        self.n_features = len(self.feature_names)
         self.frames = deque([], maxlen=n_frames)
         shp = env.observation_space.shape
         self.observation_space = spaces.Box(low=env.observation_space.low[0], high=env.observation_space.high[0],

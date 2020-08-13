@@ -42,7 +42,7 @@ def json_to_data(json_string, custom_objects=None):
     # This will be filled with deserialized data
     return_data = {}
     for data_key, data_item in json_dict.items():
-        if data_key == 'policy':        # ignore the policy as it will be overwritten
+        if (data_key == 'policy') or (data_key == 'gen_act_policy'):     # ignore the policy as it will be overwritten
             continue
         if custom_objects is not None and data_key in custom_objects.keys():
             # If item is provided in custom_objects, replace
@@ -895,7 +895,6 @@ class RLPolicyDeploy:
             # only load that part.
             _, params = RLPolicyDeploy._load_from_file(load_path_or_dict, load_data=False)
             params = dict(params)
-
         feed_dict = {}
         param_update_ops = []
         # Keep track of not-updated variables

@@ -81,7 +81,11 @@ class DTTEnvReal(gym.Env):
     """
     # Because of google colab, we cannot implement the GUI ('human' render mode)
     metadata = {'render.modes': ['console']}
-
+    dPL = {0: (-0.5, -0.5), 1: (0, -0.5), 2: (0.5, -0.5),
+           3: (-0.5, 0), 4: (0, 0), 5: (0.5, 0),
+           6: (-0.5, 0.5), 7: (0, 0.5), 8: (0.5, 0.5)}
+    a2dPL={k: tuple([1000 * ve for ve in v]) for k, v in dPL.items()}
+    dPL2a={v:k for k,v in a2dPL.items()}
     def __init__(self, obs_dim=31,n_act=9):
         super(DTTEnvReal, self).__init__()
 
