@@ -188,7 +188,6 @@ def feature_extraction_scarlet(data, **params):
 
     return feature_of_dict
 
-
 def feature_extraction_scarlet_ns(data, **params):
     # declare feature list
     feature_of_dict = {'power_to_curpl1_mean':None,'power_to_curpl1_std':None,'power_to_maxpl1_mean':None,

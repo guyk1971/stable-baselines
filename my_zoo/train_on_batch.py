@@ -332,9 +332,10 @@ def run_experiment(experiment_params):
         exp_buf_filename = os.path.join(output_dir,exp_buf_filename)
         logger.info('Generating expert experience buffer with ' + exp_agent_algo)
         _ = generate_experience_traj(model, save_path=exp_buf_filename, env=env,
-                                     n_timesteps_record=experiment_params.expert_steps_to_record)
+                                     n_timesteps_record=experiment_params.expert_steps_to_record,
+                                     deterministic=experiment_params.deterministic_experience)
 
-    logger.info(title("completed experiment seed {}".format(seed),30))
+    logger.info(title(f"completed experiment seed {seed}",30))
     return
 
 
@@ -342,13 +343,25 @@ def run_experiment(experiment_params):
 def main():
 
     args = parse_cmd_line()
-    print('reading experiment params from '+args.exparams)
-    module_path = 'my_zoo.hyperparams.'+args.exparams.replace(os.path.sep,'.')
+    print('reading experiment params from '+os.path.abspath(args.exparams))
+
+    # module_path = 'config.'+args.exparams.replace(os.path.sep,'.')
+    # exp_params_module = importlib.import_module(module_path)
+    # experiment_params = getattr(exp_params_module,'experiment_params')
+    # # set the path to the config file
+    # hyperparams_folder_path=os.path.join(os.path.dirname(os.path.realpath(os.curdir)),'config')
+    # exparams_path=os.path.join(hyperparams_folder_path,args.exparams+'.py')
+    # exp_folder_name = os.path.basename(args.exparams) + '-' + time.strftime("%d-%m-%Y_%H-%M-%S")
+    exparams=os.path.splitext(args.exparams)[0]
+    exparams=exparams[exparams.find('config')+7:]
+    module_path = 'config.'+exparams.replace(os.path.sep,'.')
     exp_params_module = importlib.import_module(module_path)
     experiment_params = getattr(exp_params_module,'experiment_params')
     # set the path to the config file
-    hyperparams_folder_path=os.path.join(os.path.dirname(os.path.realpath(__file__)),'hyperparams')
-    exparams_path=os.path.join(hyperparams_folder_path,args.exparams+'.py')
+    exparams_path=os.path.abspath(args.exparams)
+    exp_folder_name = os.path.basename(exparams) + '-' + time.strftime("%d-%m-%Y_%H-%M-%S")
+
+
     # set compute device
     if args.gpuid=='cpu':
         set_gpu_device('')
@@ -358,7 +371,7 @@ def main():
         pass
 
     # create experiment folder and logger
-    exp_folder_name = os.path.basename(args.exparams) + '-' + time.strftime("%d-%m-%Y_%H-%M-%S")
+
     experiment_params.output_root_dir = os.path.join(experiment_params.output_root_dir,exp_folder_name)
     os.makedirs(experiment_params.output_root_dir, exist_ok=True)
     # copy the configuration file

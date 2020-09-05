@@ -188,195 +188,109 @@ def feature_extraction_scarlet_ns(data, **params):
 FEATURE_EXTRACTORS={0: feature_extraction_scarlet,2:feature_extraction_scarlet_ns}
 
 
+import configparser
+from calc_power_limit_python_version.deploy_stbl_tf import load_stbl_model,suppress_tensorflow_warnings
+import gym
+from gym import spaces
+suppress_tensorflow_warnings()
 
+class DTTEnvReal(gym.Env):
+    """
+    Custom Environment that follows gym interface.
+    This is a simple env that imitates the L2P behaviour
+    """
+    # Because of google colab, we cannot implement the GUI ('human' render mode)
+    metadata = {'render.modes': ['console']}
 
-def parse_cmd_line():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-n','--n_episodes', help='number of episodes', default=30,type=int)
-    parser.add_argument('-b', '--benchmark', help='benchmark to run', type=str, default='cb20mr')
-    parser.add_argument('--pf', help='fixed policy', type=int, nargs=2, action='append')
-    parser.add_argument('--pg', help='greedy policy', type=bool)
-    parser.add_argument('--pm', help='load policy model from path', type=str)
-    parser.add_argument('-fe', '--featurext', help='feature extractor', default=0, type=int)
-    parser.add_argument('-r', '--reward', help='reward function',default=0, type=int)
-    parser.add_argument('--platform', help='type of platform: Scarlet', default='ScarletM', type=str)
-    parser.add_argument('-v','--verbose',help='verbose will create esif file', action='store_true')
-    args = parser.parse_args()
-    return args
+    def __init__(self, obs_dim=31, n_act=9):
+        super(DTTEnvReal, self).__init__()
 
+        # the observation space include obs_dim float values
+        self.obs_dim = obs_dim
+        # Currently assuming discrete action space with n_act actions
+        self.act_dim = 1
+        # Define action and observation space
+        # They must be gym.spaces objects
+        # Example when using discrete actions, we have two: left and right
+        self.action_space = spaces.Discrete(n_act)
+        # The observation will be the coordinate of the agent
+        # this can be described both by Discrete and Box space
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
+        self.max_path_length = 1000  # arbitrary number
 
-def sim_calc_power_limits():
-    args = parse_cmd_line()
-    platform = PLATFORMS[args.platform]
-    n_episodes=args.n_episodes
-    episode_workloads = EPISODES[args.benchmark]
-    log_output=os.path.join(os.getcwd(),'tmp') if args.verbose else None
-    featurext = FEATURE_EXTRACTORS[args.featurext]
-    reward=REWARD_FUNC[args.reward]
-    env = DTTEnvSim(platform, episode_workloads=episode_workloads, norm_obs=False, log_output=log_output)
-    env = DTTStateRewardWrapper(env=env,feature_extractor=featurext,reward_calc=reward,n_frames=5)
-    dPL2act = {v: np.int64(k) for k, v in env.dPL.items()}
-    feat_cols = list(featurext(None))
-    print(f'running {n_episodes} of {args.benchmark} with feature {args.featurext} and reward {args.reward}')
-    # define the policy
-    policies = {'random':random_policy}
-    policy=random_policy
-    if args.pm and os.path.exists(args.pm):  # assuming args.pm is the path to where the agent_params.py and model_params.zip are
-        # load model from file
-        policy = load_stbl_model(args.pm,env)
-        print(f'loaded policy from {args.pm}')
-    else:
-        print('using random policy')
-    tsdf = pd.DataFrame(columns=feat_cols)
-    feat_csv = os.path.join(os.getcwd(),'tmp','sim_features.csv')
-    tsdf.to_csv(feat_csv,index=False)
-    for ei in tqdm(range(n_episodes)):
-        obs = env.reset()
+    def reset(self):
+        """
+        Important: the observation must be a numpy array
+        :return: (np.array)
+        """
+        self.step_idx = 0
+        return self.observation_space.sample()
+
+    def step(self, action):
+        '''
+        Currently a dummy function that should not be called.
+        :param action:
+        :return:
+        '''
+        if (not isinstance(action, int)) or (action < 0) or (action >= self.action_space.n):
+            raise ValueError("Received invalid action={} which is not part of the action space".format(action))
+        self.step_idx += 1
+
+        state = self.observation_space.sample()
         done = False
-        out_df = pd.DataFrame(columns=feat_cols)
-        ts = 0
-        total_rew = 0
-        while not done:
-            act = policy(obs)
-            obs, rew, done, info = env.step(act)
-            total_rew += rew
-            # obs = ['pl1','pl2','power','tj','tskin','tmem','ewma']
-            # policy : as long as we're below the max value, aim to increase
-            tsdf.loc[0] = list(obs)
-            out_df = out_df.append(tsdf)
-            ts += 1
-        scores = env.get_scores()
-        avg_score = round(np.mean(scores), 2)
-        print(f'episode {ei} completed. total reward: {round(total_rew, 2)}, scores:{scores}')
-        out_df.to_csv(feat_csv, mode='a', header=False, index=False)
-    env.close()
-
-
-
-
-
-# if we run this script as main file, we'll run on the simulated environment.
-# else, we're running on the real platform
-
-
-if __name__ == '__main__':
-    import sys
-    path_to_curr_file = os.path.realpath(__file__)
-    proj_root = os.path.dirname(os.path.dirname(path_to_curr_file))
-    print(proj_root)
-    if proj_root not in sys.path:
-        sys.path.insert(0, proj_root)
-    from my_zoo.my_envs import PLATFORMS,DTTEnvSim,EPISODES,random_policy
-    from my_zoo.dttsim_wrappers import DTTStateRewardWrapper,reward_0,reward_3,reward_6,reward_7
-    from my_zoo.deploy_stbl_tf import load_stbl_model,suppress_tensorflow_warnings
-    import pandas as pd
-    os.makedirs('tmp', exist_ok=True)
-    suppress_tensorflow_warnings()
-    REWARD_FUNC = {0: reward_0, 2: reward_2, 3: reward_3,6: reward_6, 7:reward_7}
-    sim_calc_power_limits()
-else:
-    import configparser
-    from deploy_stbl_tf import load_stbl_model,suppress_tensorflow_warnings
-    import gym
-    from gym import spaces
-    import os
-
-    class DTTEnvReal(gym.Env):
-        """
-        Custom Environment that follows gym interface.
-        This is a simple env that imitates the L2P behaviour
-        """
-        # Because of google colab, we cannot implement the GUI ('human' render mode)
-        metadata = {'render.modes': ['console']}
-
-        def __init__(self, obs_dim=31, n_act=9):
-            super(DTTEnvReal, self).__init__()
-
-            # the observation space include obs_dim float values
-            self.obs_dim = obs_dim
-            # Currently assuming discrete action space with n_act actions
-            self.act_dim = 1
-            # Define action and observation space
-            # They must be gym.spaces objects
-            # Example when using discrete actions, we have two: left and right
-            self.action_space = spaces.Discrete(n_act)
-            # The observation will be the coordinate of the agent
-            # this can be described both by Discrete and Box space
-            self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
-            self.max_path_length = 1000  # arbitrary number
-
-        def reset(self):
-            """
-            Important: the observation must be a numpy array
-            :return: (np.array)
-            """
+        if self.step_idx == self.max_path_length:
+            done = True
             self.step_idx = 0
-            return self.observation_space.sample()
+        reward = 1.0
 
-        def step(self, action):
-            '''
-            Currently a dummy function that should not be called.
-            :param action:
-            :return:
-            '''
-            if (not isinstance(action, int)) or (action < 0) or (action >= self.action_space.n):
-                raise ValueError("Received invalid action={} which is not part of the action space".format(action))
-            self.step_idx += 1
+        # Optionally we can pass additional info, we are not using that for now
+        info = {}
 
-            state = self.observation_space.sample()
-            done = False
-            if self.step_idx == self.max_path_length:
-                done = True
-                self.step_idx = 0
-            reward = 1.0
+        return state, reward, done, info
 
-            # Optionally we can pass additional info, we are not using that for now
-            info = {}
+    def render(self, mode='console'):
+        if mode != 'console':
+            raise NotImplementedError()
 
-            return state, reward, done, info
+    def close(self):
+        pass
 
-        def render(self, mode='console'):
-            if mode != 'console':
-                raise NotImplementedError()
+my_version = 'RL_stbl'
+g = {'index_num': 0, 'POWER': [], 'PKG_C0': [], 'tj': [], 'tmem': [],
+     'ips_mean': [], 'ips_std': [], 'ips_max': [], 'ips_min': [],
+     'MMIO_PL1': [], 'MMIO_PL2': []}
+config = configparser.ConfigParser()
+config.sections()
+# config.read(
+#     r"C:\Users\awagner\OneDrive - Intel Corporation\Documents\GitHub\dtt_rl\deployment\calc_power_limit_versions\my_config_hyper_test.ini")
+config.read(r"my_config_hyper_test.ini")
+model_filename = r'calc_power_limit_python_version\rl_models\bch_DTTReal_dqn_scarlet_ph0-10-08-2020_12-59-54\model_params.zip'
+feature_extractor = FEATURE_EXTRACTORS[2]       # if 'f2' in model name then its feature extractor 2
+n_features = len(list(feature_extractor(None)))
+env = DTTEnvReal(obs_dim=n_features)
+policy = load_stbl_model(model_filename, env)
 
-        def close(self):
-            pass
+# extract platform parameters from config files
+pl1_min = int(config[my_version]['pl1_min'])
+pl2_max = int(config[my_version]['pl2_max'])
+pl1_max = int(config[my_version]['pl1_max'])
+pl2_min = int(config[my_version]['pl2_min'])
+tskin_max = int(config[my_version]['tskin_max'])
+tskin_idle = int(config[my_version]['tskin_idle'])
+tmem_max = int(config[my_version]['tmem_max'])
+tmem_idle = int(config[my_version]['tmem_idle'])
+tj_max = int(config[my_version]['tj_max'])
+tj_idle = int(config[my_version]['tj_idle'])
+ips_max = int(config[my_version]['ips_max'])
 
-    my_version = 'RL_stbl'
-    g = {'index_num': 0, 'POWER': [], 'PKG_C0': [], 'tj': [], 'tskin': [],
-         'ips_mean': [], 'ips_std': [], 'ips_max': [], 'ips_min': [],
-         'MMIO_PL1': [], 'MMIO_PL2': []}
-    config = configparser.ConfigParser()
-    config.sections()
-    # config.read(
-    #     r"C:\Users\awagner\OneDrive - Intel Corporation\Documents\GitHub\dtt_rl\deployment\calc_power_limit_versions\my_config_hyper_test.ini")
-    config.read(r"my_config_hyper_test.ini")
-    model_filename = r'tmp\dqn_cb20_f2_r0.zip'
-    feature_extractor = FEATURE_EXTRACTORS[2]       # if 'f2' in model name then its feature extractor 2
-    n_features = len(list(feature_extractor(None)))
-    env = DTTEnvReal(obs_dim=n_features)
-    policy = load_stbl_model(model_filename, env)
+epslion_of_choice = 0
+ewma_power = 0
+curr_pl1_pl2 = {'pl1': pl1_max, 'pl2': pl2_max}
+TAU = 28
+n2a_dict = {0:(-500,-500), 1:(0,-500), 2:(500,-500),
+            3:(-500,0), 4:(0,0), 5:(500,0),
+            6:(-500,500), 7:(0,500), 8:(500,500)}
 
-    # extract platform parameters from config files
-    pl1_min = int(config[my_version]['pl1_min'])
-    pl2_max = int(config[my_version]['pl2_max'])
-    pl1_max = int(config[my_version]['pl1_max'])
-    pl2_min = int(config[my_version]['pl2_min'])
-    tskin_max = int(config[my_version]['tskin_max'])
-    tskin_idle = int(config[my_version]['tskin_idle'])
-    tmem_max = int(config[my_version]['tmem_max'])
-    tmem_idle = int(config[my_version]['tmem_idle'])
-    tj_max = int(config[my_version]['tj_max'])
-    tj_idle = int(config[my_version]['tj_idle'])
-    ips_max = int(config[my_version]['ips_max'])
-
-    epslion_of_choice = 0
-    ewma_power = 0
-    curr_pl1_pl2 = {'pl1': pl1_max, 'pl2': pl2_max}
-    Tau = 28
-    n2a_dict = {0:(-500,-500), 1:(0,-500), 2:(500,-500),
-                3:(-500,0), 4:(0,0), 5:(500,0),
-                6:(-500,500), 7:(0,500), 8:(500,500)}
 def num_to_action(num):
     dPL=n2a_dict[num]
     return {'diffp1': float(dPL[0]), 'diffp2': float(dPL[1])}

@@ -526,6 +526,8 @@ class ExperimentParams:
         self.train_expert_n_timesteps = 0      # number of timesteps to train the expert before starting to record
 
         self.expert_steps_to_record = 0        # number of episodes to record into the experience buffer
+        self.deterministic_experience = True        # if True, use deterministic expert to generate experience buffer
+                                                    # else, use stochastic (by softmax on model outputs)
 
 
 
