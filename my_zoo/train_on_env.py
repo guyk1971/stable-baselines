@@ -264,15 +264,14 @@ def main():
 
     args = parse_cmd_line()
     print('reading experiment params from '+os.path.abspath(args.exparams))
-    exparams=os.path.splitext(args.exparams)[0]
-    exparams=exparams[exparams.find('config')+7:]
-    module_path = 'config.'+exparams.replace(os.path.sep,'.')
+
+    exparams = os.path.splitext(args.exparams)[0]
+    exparams = exparams[exparams.find('hyperparams') + 12:]
+    module_path = 'my_zoo.hyperparams.'+exparams.replace(os.path.sep,'.')
     exp_params_module = importlib.import_module(module_path)
     experiment_params = getattr(exp_params_module,'experiment_params')
     # set the path to the config file
-    exparams_path=os.path.abspath(args.exparams)
-    exp_folder_name = os.path.basename(exparams) + '-' + time.strftime("%d-%m-%Y_%H-%M-%S")
-
+    exparams_path = os.path.abspath(args.exparams)
     # set compute device
     if args.gpuid=='cpu':
         set_gpu_device('')
@@ -282,6 +281,7 @@ def main():
         pass
 
     # create experiment folder and logger
+    exp_folder_name = os.path.basename(args.exparams) + '-' + time.strftime("%d-%m-%Y_%H-%M-%S")
     experiment_params.output_root_dir = os.path.join(experiment_params.output_root_dir,exp_folder_name)
     os.makedirs(experiment_params.output_root_dir, exist_ok=True)
     # copy the configuration file
