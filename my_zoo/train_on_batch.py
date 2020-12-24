@@ -342,13 +342,15 @@ def run_experiment(experiment_params):
 def main():
 
     args = parse_cmd_line()
-    print('reading experiment params from '+args.exparams)
-    module_path = 'my_zoo.hyperparams.'+args.exparams.replace(os.path.sep,'.')
+    print('reading experiment params from '+os.path.abspath(args.exparams))
+
+    exparams = os.path.splitext(args.exparams)[0]
+    exparams = exparams[exparams.find('hyperparams') + 12:]
+    module_path = 'my_zoo.hyperparams.'+exparams.replace(os.path.sep,'.')
     exp_params_module = importlib.import_module(module_path)
     experiment_params = getattr(exp_params_module,'experiment_params')
     # set the path to the config file
-    hyperparams_folder_path=os.path.join(os.path.dirname(os.path.realpath(__file__)),'hyperparams')
-    exparams_path=os.path.join(hyperparams_folder_path,args.exparams+'.py')
+    exparams_path = os.path.abspath(args.exparams)
     # set compute device
     if args.gpuid=='cpu':
         set_gpu_device('')
